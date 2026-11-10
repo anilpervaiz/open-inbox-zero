@@ -161,7 +161,7 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     console.log("Local demo accounts are ready: developer@example.com and developer@outlook.test");
     await new Promise<void>((resolveApp, reject) => {
-      app = spawn("pnpm", ["exec", "next", "dev"], { cwd: webDir, env, stdio: "inherit" });
+      app = spawn("pnpm", ["exec", "next", "dev", "--hostname", "127.0.0.1"], { cwd: webDir, env, stdio: "inherit" });
       app.once("error", reject);
       app.once("exit", (code, signal) => {
         if (shuttingDown || code === 0) resolveApp();

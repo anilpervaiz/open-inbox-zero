@@ -12,12 +12,16 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@googleapis/gmail": "^22.0.2",
     "@prisma/client": "^6.19.0",
     "@radix-ui/react-slot": "^1.5.0",
     "@tailwindcss/postcss": "^4.3.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "email-reply-parser": "^2.3.9",
     "embedded-postgres": "16.15.0-beta.19",
+    "gmail-api-parse-message": "^2.1.2",
+    "html-to-text": "^10.0.1",
     "next": "16.4.5",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -25,6 +29,7 @@
     "tailwindcss": "^4.3.5"
   },
   "devDependencies": {
+    "@types/html-to-text": "^9.0.4",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "postcss": "^8.5.32",

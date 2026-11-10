@@ -212,6 +212,7 @@ model ExecutedAction {
   draftId            String?              // Provider draft ID for updates/cleanup
   sentMessageId      String?
   error              String?
+  undoSnapshot       Json?                // Provider state captured before an action, for safe undo
   executionStartedAt DateTime?
   executedAt         DateTime?
 }
@@ -298,6 +299,10 @@ model EmailMessage {
   fromEmail      String
   fromName       String?
   toEmail        String
+  ccEmail        String?
+  headerMessageId String?
+  inReplyTo      String?
+  references     String?
   subject        String
   snippet        String
   textBody       String
