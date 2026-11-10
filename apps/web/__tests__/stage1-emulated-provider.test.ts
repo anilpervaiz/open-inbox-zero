@@ -39,11 +39,13 @@ test("emulator persists lifecycle changes, undoes only its effects, and isolates
       { id: "one", email: "one@example.com", provider: "emulator" }, { id: "two", email: "two@example.com", provider: "emulator" },
     ] } } });
     await prisma.emailMessage.createMany({ data: [
-      { emailAccountId: "one", threadId: "thread", messageId: "first", fromEmail: "sender@example.com", toEmail: "one@example.com", subject: "Hello", snippet: "hello", textBody: "hello", internalDate: new Date(), labels: ["INBOX", "VIP"], unread: true },
+      { emailAccountId: "one", threadId: "thread", messageId: "first", fromEmail: "sender@example.com", toEmail: "one@example.com", subject: "Hello", snippet: "hello", textBody: "hello", contentType: "multipart/mixed", mimeTypes: ["text/calendar"], attachmentNames: ["invite.ics"], internalDate: new Date(), labels: ["INBOX", "VIP"], unread: true },
       { emailAccountId: "one", threadId: "thread", messageId: "second", fromEmail: "sender@example.com", toEmail: "one@example.com", subject: "Re: Hello", snippet: "again", textBody: "again", internalDate: new Date(), labels: ["VIP"], archived: true, unread: false },
       { emailAccountId: "two", threadId: "thread", messageId: "other", fromEmail: "someone@example.com", toEmail: "two@example.com", subject: "Private", snippet: "private", textBody: "private", internalDate: new Date(), labels: ["INBOX"] },
     ] });
     const provider = new EmulatedMailProvider(prisma, "one");
+    expect(provider.emailAccountId).toBe("one");
+    expect(await provider.getMessage("first")).toMatchObject({ contentType: "multipart/mixed", mimeTypes: ["text/calendar"], attachmentNames: ["invite.ics"] });
     expect((await provider.listThreads({ query: "hello" })).threadIds).toEqual(["thread"]);
     expect((await provider.getThread("thread")).messages).toHaveLength(2);
     await expect(provider.getMessage("other")).rejects.toThrow("Message not found");
@@ -76,10 +78,36 @@ test("emulator persists lifecycle changes, undoes only its effects, and isolates
     const { draftId } = await provider.createDraft({ threadId: "thread", to: "sender@example.com", cc: "cc@example.com", subject: "Re: Hello", body: "Thanks", inReplyTo: "<first@example.com>" });
     expect((await provider.getMessage(draftId)).headers).toMatchObject({ cc: "cc@example.com", inReplyTo: "<first@example.com>" });
     const draftAction = await prisma.executedAction.create({ data: { executedRuleId: execution.id, type: "DRAFT_EMAIL", status: "COMPLETED", draftId } });
+    await prisma.emailMessage.update({ where: { emailAccountId_messageId: { emailAccountId: "one", messageId: draftId } }, data: { labels: ["SENT"] } });
+    await expect(provider.undoAction(draftAction, "thread")).rejects.toThrow("no longer a draft");
+    expect((await provider.getMessage(draftId)).labelIds).toContain("SENT");
+    await prisma.emailMessage.update({ where: { emailAccountId_messageId: { emailAccountId: "one", messageId: draftId } }, data: { labels: ["DRAFT"] } });
     await provider.undoAction(draftAction, "thread");
     await expect(provider.getMessage(draftId)).rejects.toThrow("Message not found");
+    const forward = await provider.createForwardDraft({ threadId: "thread", messageId: "second", to: "friend@example.com" });
+    expect(forward.draftThreadId).toBe("thread");
+    expect((await provider.getMessage(forward.draftId)).textPlain).toContain("again");
+    const forwardAction = await prisma.executedAction.create({ data: { executedRuleId: execution.id, type: "DRAFT_EMAIL", status: "COMPLETED", ...forward } });
+    await provider.undoAction(forwardAction, "thread");
+    await expect(provider.createForwardDraft({ threadId: "thread", messageId: "first", to: "friend@example.com" })).rejects.toThrow("Attachment content is unavailable");
+    const source = await prisma.emailMessage.findUniqueOrThrow({ where: { emailAccountId_messageId: { emailAccountId: "one", messageId: "first" } } });
+    const bytes = new Uint8Array([0, 255, 1, 2, 13, 10, 200, 42]);
+    await prisma.emailAttachment.create({ data: { emailMessageId: source.id, name: "invite.ics", contentType: "text/calendar", content: bytes } });
+    const attachedDraft = await provider.createForwardDraft({ threadId: "thread", messageId: "first", to: "friend@example.com" });
+    const draftRow = await prisma.emailMessage.findUniqueOrThrow({ where: { emailAccountId_messageId: { emailAccountId: "one", messageId: attachedDraft.draftId } }, include: { attachments: true } });
+    expect(draftRow.attachments).toHaveLength(1);
+    expect(draftRow.attachments[0]).toMatchObject({ name: "invite.ics", contentType: "text/calendar" });
+    expect([...draftRow.attachments[0]!.content]).toEqual([...bytes]);
+    const attachedAction = await prisma.executedAction.create({ data: { executedRuleId: execution.id, type: "DRAFT_EMAIL", status: "COMPLETED", ...attachedDraft } });
+    await provider.undoAction(attachedAction, "thread");
+    expect(await prisma.emailAttachment.count({ where: { emailMessageId: draftRow.id } })).toBe(0);
+    expect(await prisma.emailAttachment.count({ where: { emailMessageId: source.id } })).toBe(1);
+    const sent = await provider.forwardEmail({ threadId: "thread", messageId: "first", to: "friend@example.com" });
+    const sentRow = await prisma.emailMessage.findUniqueOrThrow({ where: { emailAccountId_messageId: { emailAccountId: "one", messageId: sent.messageId } }, include: { attachments: true } });
+    expect([...sentRow.attachments[0]!.content]).toEqual([...bytes]);
     const other = new EmulatedMailProvider(prisma, "two");
-    await expect(other.undoAction(archive, "thread")).rejects.toThrow("Completed action not found");
+    await expect(other.createForwardDraft({ threadId: "thread", messageId: "first", to: "friend@example.com" })).rejects.toThrow("not in account");
+    await expect(other.undoAction(archive, "thread")).rejects.toThrow("Reversible action not found");
     expect((await other.getMessage("other")).labelIds).toEqual(["INBOX"]);
     const missingSnapshot = await prisma.executedAction.create({ data: { executedRuleId: execution.id, type: "ARCHIVE", status: "COMPLETED" } });
     await expect(provider.undoAction(missingSnapshot, "thread")).rejects.toThrow("Missing undo snapshot");

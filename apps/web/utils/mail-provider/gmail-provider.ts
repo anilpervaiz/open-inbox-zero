@@ -1,7 +1,9 @@
 import type { ExecutedAction } from "@prisma/client";
 import type { gmail_v1 } from "@googleapis/gmail";
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 import type { EmailProvider, ParsedMessage } from "./types";
+import { formatForwardMessage, type ForwardInput } from "./forward";
 
 // The upstream parser is CommonJS and does not publish TypeScript declarations.
 const parseGmail = createRequire(import.meta.url)("gmail-api-parse-message") as (message: gmail_v1.Schema$Message) => {
@@ -36,6 +38,17 @@ async function safeCall<T>(request: () => Promise<T>): Promise<T> {
 function parseMessage(message: gmail_v1.Schema$Message): ParsedMessage {
   const parsed = parseGmail(message);
   const headers = parsed.headers ?? {};
+  const mimeTypes = new Set<string>();
+  const attachmentNames: string[] = [];
+  let hasAttachments = false;
+  const visit = (part: gmail_v1.Schema$MessagePart | null | undefined): void => {
+    if (!part) return;
+    if (part.mimeType) mimeTypes.add(part.mimeType);
+    if (part.filename) attachmentNames.push(part.filename);
+    if (part.filename || part.body?.attachmentId || part.headers?.some((header) => header.name?.toLowerCase() === "content-disposition" && /attachment|inline/i.test(header.value ?? ""))) hasAttachments = true;
+    for (const child of part.parts ?? []) visit(child);
+  };
+  visit(message.payload);
   const timestamp = Number(message.internalDate);
   if (!message.internalDate || !Number.isFinite(timestamp) || Number.isNaN(new Date(timestamp).getTime())) throw new Error("Gmail response has invalid internalDate");
   return {
@@ -52,6 +65,10 @@ function parseMessage(message: gmail_v1.Schema$Message): ParsedMessage {
     },
     textPlain: parsed.textPlain ?? "",
     textHtml: parsed.textHtml,
+    contentType: headers["content-type"] ?? message.payload?.mimeType ?? undefined,
+    mimeTypes: [...mimeTypes],
+    attachmentNames,
+    hasAttachments,
   };
 }
 
@@ -75,7 +92,9 @@ function rawMessage(input: DraftInput): string {
 /** Gmail API adapter. Callers supply an OAuth-authenticated Gmail client. */
 export class GmailProvider implements EmailProvider {
   readonly providerName = "google" as const;
-  constructor(private readonly gmail: gmail_v1.Gmail) {}
+  constructor(private readonly gmail: gmail_v1.Gmail, readonly emailAccountId: string) {
+    if (!emailAccountId.trim()) throw new Error("Provider account ID is required");
+  }
 
   async listThreads(options: { query?: string; labelIds?: string[]; maxResults?: number }): Promise<{ threadIds: string[] }> {
     const limit = Math.max(0, options.maxResults ?? 100);
@@ -107,6 +126,35 @@ export class GmailProvider implements EmailProvider {
   }
 
   async archiveThread(threadId: string): Promise<void> { await this.modify(threadId, [], ["INBOX"]); }
+
+  async markSpam(threadId: string): Promise<void> { await this.modify(threadId, ["SPAM"], ["INBOX"]); }
+
+  private async buildForwardMime(input: ForwardInput): Promise<string> {
+    const message = await this.getMessage(input.messageId);
+    if (message.threadId !== input.threadId) throw new Error("Forward message is not in thread");
+    const { data } = await safeCall(() => this.gmail.users.messages.get({ userId: "me", id: input.messageId, format: "raw" }));
+    if (data.id !== input.messageId || data.threadId !== input.threadId || !data.raw || !/^[A-Za-z0-9_-]+={0,2}$/.test(data.raw)) throw new Error("Gmail original MIME is unavailable");
+    const original = Buffer.from(data.raw, "base64url");
+    if (!original.length || original.toString("base64url") !== data.raw.replace(/=+$/, "") || original.length > 20_000_000) throw new Error("Gmail original MIME is invalid or too large to forward");
+    const forward = formatForwardMessage({ ...message, hasAttachments: false, attachmentNames: [] }, input.comment);
+    const boundary = `open-inbox-zero-${randomUUID()}`;
+    const lines = (body: Buffer) => body.toString("base64").replace(/.{1,76}/g, "$&\r\n");
+    const headers = [`To: ${safeHeader(input.to)}`, ...(input.cc ? [`Cc: ${safeHeader(input.cc)}`] : []), `Subject: =?UTF-8?B?${Buffer.from(safeHeader(forward.subject)).toString("base64")}?=`, "MIME-Version: 1.0", `Content-Type: multipart/mixed; boundary="${boundary}"`];
+    const raw = Buffer.from(`${headers.join("\r\n")}\r\n\r\n--${boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${lines(Buffer.from(forward.body))}--${boundary}\r\nContent-Type: message/rfc822\r\nContent-Disposition: attachment; filename="forwarded.eml"\r\nContent-Transfer-Encoding: base64\r\n\r\n${lines(original)}--${boundary}--\r\n`).toString("base64url");
+    return raw;
+  }
+
+  async createForwardDraft(input: ForwardInput): Promise<{ draftId: string; draftThreadId: string }> {
+    const raw = await this.buildForwardMime(input);
+    const { data } = await safeCall(() => this.gmail.users.drafts.create({ userId: "me", requestBody: { message: { raw } } }));
+    return { draftId: required(data.id, "draft id"), draftThreadId: required(data.message?.threadId, "draft thread id") };
+  }
+
+  async forwardEmail(input: ForwardInput): Promise<{ messageId: string }> {
+    const raw = await this.buildForwardMime(input);
+    const sent = await safeCall(() => this.gmail.users.messages.send({ userId: "me", requestBody: { raw } }));
+    return { messageId: required(sent.data.id, "sent message id") };
+  }
 
   private async labelId(name: string, create: boolean): Promise<string | undefined> {
     const { data } = await safeCall(() => this.gmail.users.labels.list({ userId: "me" }));
@@ -158,6 +206,7 @@ export class GmailProvider implements EmailProvider {
     let remove = "";
     switch (action.type) {
       case "ARCHIVE": add = "INBOX"; break;
+      case "MARK_SPAM": add = "INBOX"; remove = "SPAM"; break;
       case "LABEL": {
         if (!action.label) throw new Error("Cannot undo Gmail label action without a label");
         remove = required(await this.labelId(action.label, false), "label id");
@@ -167,7 +216,7 @@ export class GmailProvider implements EmailProvider {
       case "DRAFT_EMAIL": {
         if (!action.draftId) throw new Error("Cannot undo Gmail draft action without a draft id");
         const { data } = await safeCall(() => this.gmail.users.drafts.get({ userId: "me", id: action.draftId!, format: "minimal" }));
-        if (data.id !== action.draftId || data.message?.threadId !== threadId) throw new Error("Cannot undo: the Gmail draft is no longer in this thread");
+        if (data.id !== action.draftId || data.message?.threadId !== (action.draftThreadId ?? threadId)) throw new Error("Cannot undo: the Gmail draft is no longer in this thread");
         await safeCall(() => this.gmail.users.drafts.delete({ userId: "me", id: action.draftId! }));
         return;
       }

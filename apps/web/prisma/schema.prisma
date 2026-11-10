@@ -50,6 +50,15 @@ enum ExecutedActionStatus {
   FAILED
 }
 
+enum DelayedActionStatus {
+  PENDING
+  CLAIMED
+  COMPLETED
+  FAILED
+  UNCERTAIN
+  CANCELLED
+}
+
 enum GroupItemType {
   FROM
   SUBJECT
@@ -153,6 +162,7 @@ model Action {
   bcc         String?
   url         String?    // For CALL_WEBHOOK
   delayMinutes Int?      // For delayed actions
+  autoSend     Boolean    @default(false) // Explicit opt-in to outbound sending
 }
 
 model Group {
@@ -210,11 +220,36 @@ model ExecutedAction {
   bcc                String?
   url                String?
   draftId            String?              // Provider draft ID for updates/cleanup
+  draftThreadId      String?              // Provider thread containing the created draft
   sentMessageId      String?
   error              String?
   undoSnapshot       Json?                // Provider state captured before an action, for safe undo
   executionStartedAt DateTime?
   executedAt         DateTime?
+  delayedAction      DelayedAction?
+}
+
+// A scheduled provider mutation is claimed once; uncertain outcomes are never
+// retried automatically because an external mail provider cannot join our transaction.
+model DelayedAction {
+  id               String              @id @default(cuid())
+  executedActionId String              @unique
+  executedAction   ExecutedAction      @relation(fields: [executedActionId], references: [id], onDelete: Cascade)
+  sourceActionId   String
+  sourceFingerprint String
+  protectedSenders String[]            @default([])
+  dueAt            DateTime
+  status           DelayedActionStatus @default(PENDING)
+  claimToken       String?
+  leaseUntil       DateTime?
+  startedAt        DateTime?
+  learningPending  Boolean             @default(false)
+  learningNextAttemptAt DateTime?
+  attempts         Int                 @default(0)
+  error            String?
+  createdAt        DateTime            @default(now())
+
+  @@index([status, dueAt])
 }
 
 model ThreadTracker {
@@ -307,6 +342,10 @@ model EmailMessage {
   snippet        String
   textBody       String
   htmlBody       String?
+  contentType    String?
+  attachmentNames String[] @default([])
+  attachments     EmailAttachment[]
+  mimeTypes      String[] @default([])
   labels         String[]
   unread         Boolean      @default(true)
   archived       Boolean      @default(false)
@@ -315,4 +354,42 @@ model EmailMessage {
   internalDate   DateTime
 
   @@unique([emailAccountId, messageId])
+}
+
+// Cooperative fail-closed lock for provider mutations and undo on a thread.
+// A lock left by a crashed process requires explicit operator recovery.
+model ThreadExecutionLock {
+  id             String   @id @default(cuid())
+  emailAccountId String
+  threadId       String
+  ownerClaimToken String?
+  createdAt      DateTime @default(now())
+
+  @@unique([emailAccountId, threadId])
+}
+
+// Binary attachment data belongs to a mailbox-scoped message and is deleted with it.
+model EmailAttachment {
+  id             String       @id @default(cuid())
+  emailMessageId String
+  emailMessage   EmailMessage @relation(fields: [emailMessageId], references: [id], onDelete: Cascade)
+  name           String
+  contentType    String
+  content        Bytes
+
+  @@index([emailMessageId])
+}
+
+// Explicit operator attestations when an abandoned immediate execution is recovered.
+model ExecutionRecovery {
+  id                 String   @id @default(cuid())
+  emailAccountId     String
+  threadId           String
+  abandonedLockId    String
+  operator           String
+  stoppedEvidence    String
+  affectedExecutions Int
+  createdAt          DateTime @default(now())
+
+  @@index([emailAccountId, threadId])
 }

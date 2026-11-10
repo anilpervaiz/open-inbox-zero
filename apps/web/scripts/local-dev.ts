@@ -99,6 +99,7 @@ async function main(): Promise<void> {
   let database: EmbeddedPostgres | undefined;
   let databaseStarted = false;
   let app: ChildProcess | undefined;
+  let worker: ChildProcess | undefined;
   let shuttingDown = false;
 
   const shutdown = async () => {
@@ -108,6 +109,12 @@ async function main(): Promise<void> {
       const runningApp = app;
       const stopped = new Promise<void>((resolveStop) => runningApp.once("exit", () => resolveStop()));
       runningApp.kill("SIGTERM");
+      await stopped;
+    }
+    if (worker && worker.exitCode === null && worker.signalCode === null) {
+      const runningWorker = worker;
+      const stopped = new Promise<void>((resolveStop) => runningWorker.once("exit", () => resolveStop()));
+      runningWorker.kill("SIGTERM");
       await stopped;
     }
     if (databaseStarted && database) await database.stop();
@@ -161,6 +168,11 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     console.log("Local demo accounts are ready: developer@example.com and developer@outlook.test");
     await new Promise<void>((resolveApp, reject) => {
+      worker = spawn(process.execPath, ["--import", "tsx", resolve(webDir, "../worker/src/index.ts")], { cwd: webDir, env, stdio: "inherit" });
+      worker.once("error", reject);
+      worker.once("exit", (code, signal) => {
+        if (!shuttingDown) reject(new Error(`Delayed worker exited with ${signal ?? code}`));
+      });
       app = spawn("pnpm", ["exec", "next", "dev", "--hostname", "127.0.0.1"], { cwd: webDir, env, stdio: "inherit" });
       app.once("error", reject);
       app.once("exit", (code, signal) => {

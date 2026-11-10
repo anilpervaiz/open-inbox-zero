@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { EmailMessage, ExecutedAction, PrismaClient } from "@prisma/client";
+import type { EmailAttachment, EmailMessage, ExecutedAction, PrismaClient } from "@prisma/client";
 import type { EmailProvider, ParsedMessage } from "./types";
+import { formatForwardMessage, type ForwardInput } from "./forward";
 
 type MailInput = { threadId?: string; to: string; cc?: string; subject: string; body: string; inReplyTo?: string };
 type MessageSnapshot = { messageId: string; archived: boolean; unread: boolean; labels: string[] };
 export type EmulatorUndoSnapshot = { provider: "emulator"; threadId: string; messages: MessageSnapshot[] };
 
-function parseMessage(message: EmailMessage): ParsedMessage {
+function parseMessage(message: EmailMessage & { attachments: EmailAttachment[] }): ParsedMessage {
   return {
     id: message.messageId, threadId: message.threadId, snippet: message.snippet,
     internalDate: message.internalDate, labelIds: message.labels,
@@ -22,6 +23,10 @@ function parseMessage(message: EmailMessage): ParsedMessage {
     },
     textPlain: message.textBody,
     ...(message.htmlBody ? { textHtml: message.htmlBody } : {}),
+    ...(message.contentType ? { contentType: message.contentType } : {}),
+    mimeTypes: message.mimeTypes,
+    attachmentNames: message.attachmentNames,
+    hasAttachments: message.attachmentNames.length > 0 || message.attachments.length > 0,
   };
 }
 
@@ -37,10 +42,12 @@ function readSnapshot(value: unknown, threadId: string): EmulatorUndoSnapshot {
 /** Offline provider backed by the selected account's database rows. */
 export class EmulatedMailProvider implements EmailProvider {
   readonly providerName = "emulator" as const;
-  constructor(private readonly prisma: PrismaClient, private readonly emailAccountId: string) {}
+  constructor(private readonly prisma: PrismaClient, readonly emailAccountId: string) {
+    if (!emailAccountId.trim()) throw new Error("Provider account ID is required");
+  }
 
-  private async messages(threadId: string): Promise<EmailMessage[]> {
-    const messages = await this.prisma.emailMessage.findMany({ where: { emailAccountId: this.emailAccountId, threadId }, orderBy: { internalDate: "asc" } });
+  private async messages(threadId: string): Promise<(EmailMessage & { attachments: EmailAttachment[] })[]> {
+    const messages = await this.prisma.emailMessage.findMany({ where: { emailAccountId: this.emailAccountId, threadId }, include: { attachments: true }, orderBy: { internalDate: "asc" } });
     if (!messages.length) throw new Error("Thread not found");
     return messages;
   }
@@ -60,7 +67,7 @@ export class EmulatedMailProvider implements EmailProvider {
   }
 
   async getMessage(messageId: string): Promise<ParsedMessage> {
-    const message = await this.prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId: this.emailAccountId, messageId } } });
+    const message = await this.prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId: this.emailAccountId, messageId } }, include: { attachments: true } });
     if (!message) throw new Error("Message not found");
     return parseMessage(message);
   }
@@ -75,6 +82,36 @@ export class EmulatedMailProvider implements EmailProvider {
   async archiveThread(threadId: string): Promise<void> {
     const messages = await this.messages(threadId);
     await this.prisma.$transaction(messages.map((message) => this.prisma.emailMessage.update({ where: { id: message.id }, data: { archived: true, labels: message.labels.filter((label) => label !== "INBOX") } })));
+  }
+
+  async markSpam(threadId: string): Promise<void> {
+    const messages = await this.messages(threadId);
+    await this.prisma.$transaction(messages.map((message) => this.prisma.emailMessage.update({ where: { id: message.id }, data: { archived: true, labels: [...new Set([...message.labels.filter((label) => label !== "INBOX"), "SPAM"])] } })));
+  }
+
+  private async forwardContent(input: ForwardInput) {
+    const source = await this.prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId: this.emailAccountId, messageId: input.messageId } }, include: { attachments: true } });
+    if (!source || source.threadId !== input.threadId) throw new Error("Forward message is not in account and thread");
+    // Metadata alone cannot recreate bytes. Never silently omit an attachment.
+    const expectedNames = [...source.attachmentNames].sort();
+    const storedNames = source.attachments.map((attachment) => attachment.name).sort();
+    if (expectedNames.length !== storedNames.length || expectedNames.some((name, index) => name !== storedNames[index])) throw new Error("Attachment content is unavailable");
+    if (source.attachments.reduce((sum, attachment) => sum + attachment.content.byteLength, 0) > 20_000_000) throw new Error("Attachments are too large to forward");
+    const message = parseMessage(source);
+    const content = formatForwardMessage({ ...message, hasAttachments: false, attachmentNames: [] }, input.comment);
+    const attachments = source.attachments.map(({ name, contentType, content }) => ({ name, contentType, content }));
+    return { content, attachments };
+  }
+
+  async createForwardDraft(input: ForwardInput): Promise<{ draftId: string; draftThreadId: string }> {
+    const { content, attachments } = await this.forwardContent(input);
+    const draftId = await this.createMessage({ threadId: input.threadId, to: input.to, cc: input.cc, ...content }, "DRAFT", attachments);
+    return { draftId, draftThreadId: input.threadId };
+  }
+
+  async forwardEmail(input: ForwardInput): Promise<{ messageId: string }> {
+    const { content, attachments } = await this.forwardContent(input);
+    return { messageId: await this.createMessage({ to: input.to, cc: input.cc, ...content }, "SENT", attachments) };
   }
 
   async addLabel(threadId: string, labelName: string): Promise<{ labelId: string }> {
@@ -94,7 +131,7 @@ export class EmulatedMailProvider implements EmailProvider {
     await this.prisma.$transaction(messages.map((message) => this.prisma.emailMessage.update({ where: { id: message.id }, data: { unread: !read, labels: read ? message.labels.filter((label) => label !== "UNREAD") : [...new Set([...message.labels, "UNREAD"])] } })));
   }
 
-  private async createMessage(input: MailInput, kind: "DRAFT" | "SENT"): Promise<string> {
+  private async createMessage(input: MailInput, kind: "DRAFT" | "SENT", attachments: { name: string; contentType: string; content: Uint8Array }[] = []): Promise<string> {
     const account = await this.prisma.emailAccount.findUnique({ where: { id: this.emailAccountId } });
     if (!account || account.provider !== "emulator") throw new Error("Emulator account not found");
     if (input.threadId) await this.messages(input.threadId);
@@ -104,6 +141,8 @@ export class EmulatedMailProvider implements EmailProvider {
       fromEmail: account.email, toEmail: input.to, ccEmail: input.cc, inReplyTo: input.inReplyTo,
       subject: input.subject, textBody: input.body, snippet: input.body.slice(0, 160),
       internalDate: new Date(), labels: [kind], unread: false, archived: false,
+      attachmentNames: attachments.map((attachment) => attachment.name), mimeTypes: attachments.map((attachment) => attachment.contentType),
+      attachments: { create: attachments.map((attachment) => ({ ...attachment, content: new Uint8Array(attachment.content) })) },
     } });
     return messageId;
   }
@@ -113,19 +152,27 @@ export class EmulatedMailProvider implements EmailProvider {
 
   async undoAction(action: ExecutedAction, threadId: string): Promise<void> {
     const saved = await this.prisma.executedAction.findFirst({ where: { id: action.id, executedRule: { emailAccountId: this.emailAccountId, threadId } } });
-    if (!saved || saved.status !== "COMPLETED") throw new Error("Completed action not found for this account and thread");
+    if (!saved || !(saved.status === "COMPLETED" || (saved.status === "FAILED" && saved.executionStartedAt && saved.undoSnapshot))) {
+      throw new Error("Reversible action not found for this account and thread");
+    }
     if (saved.type === "DRAFT_EMAIL") {
       if (!saved.draftId) throw new Error("Draft ID is missing");
       const draft = await this.prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId: this.emailAccountId, messageId: saved.draftId } } });
-      if (draft && draft.threadId === threadId && draft.labels.includes("DRAFT")) await this.prisma.emailMessage.delete({ where: { id: draft.id } });
+      if (!draft || draft.threadId !== (saved.draftThreadId ?? threadId) || !draft.labels.includes("DRAFT")) throw new Error("Cannot undo: the message is no longer a draft in this thread");
+      await this.prisma.emailMessage.delete({ where: { id: draft.id } });
       return;
     }
-    if (!["ARCHIVE", "LABEL", "MARK_SEEN"].includes(saved.type)) throw new Error(`Action ${saved.type} cannot be undone`);
+    if (!["ARCHIVE", "LABEL", "MARK_SEEN", "MARK_SPAM"].includes(saved.type)) throw new Error(`Action ${saved.type} cannot be undone`);
     const snapshot = readSnapshot(saved.undoSnapshot, threadId);
     const current = await this.messages(threadId);
     const updates = current.flatMap((message) => {
       const previous = snapshot.messages.find((item) => item.messageId === message.messageId);
       if (!previous) return [];
+      if (saved.type === "MARK_SPAM" && message.labels.includes("SPAM")) {
+        const labels = message.labels.filter((label) => label !== "SPAM" || previous.labels.includes("SPAM"));
+        if (previous.labels.includes("INBOX") && !labels.includes("INBOX")) labels.push("INBOX");
+        return [this.prisma.emailMessage.update({ where: { id: message.id }, data: { archived: previous.archived, labels } })];
+      }
       if (saved.type === "ARCHIVE" && !previous.archived && message.archived) {
         const labels = previous.labels.includes("INBOX") ? [...new Set([...message.labels, "INBOX"])] : message.labels;
         return [this.prisma.emailMessage.update({ where: { id: message.id }, data: { archived: false, labels } })];

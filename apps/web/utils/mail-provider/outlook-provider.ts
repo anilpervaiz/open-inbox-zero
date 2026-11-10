@@ -1,19 +1,23 @@
 import type { ExecutedAction } from "@prisma/client";
 import type { EmailProvider, ParsedMessage } from "./types";
+import type { ForwardInput } from "./forward";
 
 type Recipient = { emailAddress?: { name?: string; address?: string } };
+type GraphAttachment = { name?: string; contentType?: string };
 type GraphMessage = {
   id: string; conversationId: string; bodyPreview?: string; receivedDateTime?: string; sentDateTime?: string;
   parentFolderId?: string; isRead?: boolean; isDraft?: boolean; categories?: string[]; subject?: string; from?: Recipient;
   toRecipients?: Recipient[]; ccRecipients?: Recipient[]; internetMessageId?: string;
   internetMessageHeaders?: { name: string; value: string }[];
   body?: { contentType?: string; content?: string };
+  hasAttachments?: boolean;
+  attachments?: GraphAttachment[];
 };
 type Page<T> = { value: T[]; "@odata.nextLink"?: string };
 type DraftInput = Parameters<EmailProvider["createDraft"]>[0];
 type OutlookSnapshot = { provider: "microsoft"; threadId: string; messages: { id: string; parentFolderId: string; isRead: boolean; categories: string[] }[] };
 const base = "https://graph.microsoft.com/v1.0";
-const select = "id,conversationId,bodyPreview,receivedDateTime,sentDateTime,parentFolderId,isRead,isDraft,categories,subject,from,toRecipients,ccRecipients,internetMessageId,internetMessageHeaders,body";
+const select = "id,conversationId,bodyPreview,receivedDateTime,sentDateTime,parentFolderId,isRead,isDraft,categories,subject,from,toRecipients,ccRecipients,internetMessageId,internetMessageHeaders,body,hasAttachments";
 
 function address(recipient: Recipient | undefined): string {
   const email = recipient?.emailAddress;
@@ -61,7 +65,9 @@ function readSnapshot(value: unknown, threadId: string): OutlookSnapshot {
 export class OutlookProvider implements EmailProvider {
   readonly providerName = "microsoft" as const;
   private folderIds?: Promise<Record<string, string>>;
-  constructor(private readonly accessToken: () => Promise<string>, private readonly requestFetch: typeof fetch = fetch) {}
+  constructor(private readonly accessToken: () => Promise<string>, readonly emailAccountId: string, private readonly requestFetch: typeof fetch = fetch) {
+    if (!emailAccountId.trim()) throw new Error("Provider account ID is required");
+  }
 
   private async request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
     const url = new URL(path.startsWith("https://") ? path : `${base}${path}`);
@@ -113,6 +119,17 @@ export class OutlookProvider implements EmailProvider {
     for (const [name, id] of Object.entries(folders)) if (message.parentFolderId === id) labels.push(folderMap[name]);
     if (!message.isRead) labels.push("UNREAD");
     const headers = Object.fromEntries((message.internetMessageHeaders ?? []).map((header) => [header.name.toLowerCase(), header.value]));
+    const attachments: GraphAttachment[] = [...(message.attachments ?? [])];
+    // Graph can report hasAttachments=false for inline-only attachments, so that
+    // flag cannot prove that a message has no calendar file.
+    if (!message.attachments) {
+      let next: string | undefined = `/me/messages/${encodeURIComponent(message.id)}/attachments?$select=name,contentType`;
+      while (next) {
+        const page: Page<GraphAttachment> = await this.request<Page<GraphAttachment>>(next);
+        attachments.push(...page.value);
+        next = page["@odata.nextLink"];
+      }
+    }
     const date = message.receivedDateTime ?? message.sentDateTime ?? "";
     if (!message.id || !message.conversationId || !date || Number.isNaN(Date.parse(date))) throw new Error("Microsoft Graph response missing message identity or date");
     const isHtml = message.body?.contentType?.toLowerCase() === "html";
@@ -124,6 +141,10 @@ export class OutlookProvider implements EmailProvider {
         references: headers.references, listUnsubscribe: headers["list-unsubscribe"], listUnsubscribePost: headers["list-unsubscribe-post"],
       },
       textPlain: isHtml ? "" : message.body?.content ?? "", textHtml: isHtml ? message.body?.content : undefined,
+      contentType: headers["content-type"],
+      mimeTypes: attachments.flatMap((attachment) => attachment.contentType ? [attachment.contentType] : []),
+      attachmentNames: attachments.flatMap((attachment) => attachment.name ? [attachment.name] : []),
+      hasAttachments: attachments.length > 0,
     };
   }
 
@@ -168,6 +189,28 @@ export class OutlookProvider implements EmailProvider {
   async archiveThread(threadId: string): Promise<void> {
     const [messages, folders] = await Promise.all([this.conversation(threadId), this.folders()]);
     for (const message of messages) if (message.parentFolderId === folders.inbox) await this.moveMessage(message.id, folders.archive);
+  }
+  async markSpam(threadId: string): Promise<void> {
+    const [messages, folders] = await Promise.all([this.conversation(threadId), this.folders()]);
+    for (const message of messages) if (message.parentFolderId === folders.inbox) await this.moveMessage(message.id, folders.junkemail);
+  }
+  async createForwardDraft(input: ForwardInput): Promise<{ draftId: string; draftThreadId: string }> {
+    const message = await this.getMessage(input.messageId);
+    if (message.threadId !== input.threadId) throw new Error("Forward message is not in thread");
+    const created = await this.request<{ id: string; conversationId?: string }>(`/me/messages/${encodeURIComponent(input.messageId)}/createForward`, { method: "POST", body: { message: { toRecipients: recipients(input.to), ccRecipients: recipients(input.cc) }, ...(input.comment ? { comment: input.comment } : {}) } });
+    if (!created.id) throw new Error("Microsoft Graph response missing forward draft id");
+    let draftThreadId = created.conversationId;
+    if (!draftThreadId) {
+      const draft = await this.request<{ id: string; isDraft: boolean; conversationId?: string }>(`/me/messages/${encodeURIComponent(created.id)}?$select=id,isDraft,conversationId`);
+      if (draft.id !== created.id || !draft.isDraft || !draft.conversationId) throw new Error("Microsoft Graph forward draft identity unavailable");
+      draftThreadId = draft.conversationId;
+    }
+    return { draftId: created.id, draftThreadId };
+  }
+  async forwardEmail(input: ForwardInput): Promise<{ messageId: string }> {
+    const { draftId } = await this.createForwardDraft(input);
+    await this.request(`/me/messages/${encodeURIComponent(draftId)}/send`, { method: "POST" });
+    return { messageId: draftId };
   }
   async addLabel(threadId: string, labelName: string): Promise<{ labelId: string }> {
     const messages = await this.conversation(threadId);
@@ -223,15 +266,17 @@ export class OutlookProvider implements EmailProvider {
     const current = await this.captureUndoSnapshot(threadId);
     if (snapshot.messages.some((message) => !current.messages.some((item) => item.id === message.id))) throw new Error("Cannot undo: original Outlook messages are no longer in this conversation");
     switch (action.type) {
-      case "ARCHIVE": {
+      case "ARCHIVE":
+      case "MARK_SPAM": {
         const folders = await this.folders();
+        const target = action.type === "ARCHIVE" ? folders.archive : folders.junkemail;
         const originallyInInbox = snapshot.messages.filter((message) => message.parentFolderId === folders.inbox);
         if (originallyInInbox.some((message) => {
           const currentFolder = current.messages.find((item) => item.id === message.id)!.parentFolderId;
-          return currentFolder !== folders.inbox && currentFolder !== folders.archive;
+          return currentFolder !== folders.inbox && currentFolder !== target;
         })) throw new Error("Cannot undo: an Outlook message was moved to another folder");
         for (const message of originallyInInbox) {
-          if (current.messages.find((item) => item.id === message.id)!.parentFolderId === folders.archive) await this.moveMessage(message.id, folders.inbox);
+          if (current.messages.find((item) => item.id === message.id)!.parentFolderId === target) await this.moveMessage(message.id, folders.inbox);
         }
         return;
       }
@@ -255,7 +300,7 @@ export class OutlookProvider implements EmailProvider {
       case "DRAFT_EMAIL": {
         if (!action.draftId) throw new Error("Cannot undo Outlook draft action without a draft id");
         const draft = await this.request<{ id: string; isDraft: boolean; conversationId: string }>(`/me/messages/${encodeURIComponent(action.draftId)}?$select=id,isDraft,conversationId`);
-        if (draft.id !== action.draftId || !draft.isDraft || draft.conversationId !== threadId) throw new Error("Cannot undo: the Outlook message is no longer a draft in this conversation");
+        if (draft.id !== action.draftId || !draft.isDraft || draft.conversationId !== (action.draftThreadId ?? threadId)) throw new Error("Cannot undo: the Outlook message is no longer a draft in this conversation");
         await this.request(`/me/messages/${encodeURIComponent(action.draftId)}`, { method: "DELETE" });
         return;
       }
