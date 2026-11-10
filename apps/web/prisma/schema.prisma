@@ -1,0 +1,313 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LogicalOperator {
+  AND
+  OR
+}
+
+enum SystemType {
+  TO_REPLY
+  NEWSLETTER
+  MARKETING
+  CALENDAR
+  RECEIPT
+  NOTIFICATION
+  COLD_EMAIL
+}
+
+enum ActionType {
+  ARCHIVE
+  LABEL
+  REPLY
+  SEND_EMAIL
+  FORWARD
+  DRAFT_EMAIL
+  MARK_SEEN
+  MARK_SPAM
+  CALL_WEBHOOK
+  TRACK_THREAD
+}
+
+enum ExecutedRuleStatus {
+  PENDING
+  APPLIED
+  SKIPPED
+  REJECTED
+  ERROR
+}
+
+enum ExecutedActionStatus {
+  PENDING
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+enum GroupItemType {
+  FROM
+  SUBJECT
+  BODY
+}
+
+enum GroupItemSource {
+  USER
+  AI_LEARNED
+}
+
+enum ThreadTrackerType {
+  NEEDS_REPLY
+  AWAITING_REPLY
+}
+
+enum ColdEmailStatus {
+  AI_LABELED_COLD
+  USER_MARKED_COLD
+  NOT_COLD
+}
+
+enum NewsletterStatus {
+  AUTO_ARCHIVE
+  AUTO_ARCHIVE_AND_LABEL
+  UNSUBSCRIBED
+  APPROVED
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  emailAccounts EmailAccount[]
+}
+
+model EmailAccount {
+  id                   String               @id @default(cuid())
+  userId               String
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email                String               @unique
+  provider             String               // "google" | "microsoft" | "emulator"
+  encryptedAccessToken String?
+  encryptedRefreshToken String?
+  lastSyncedHistoryId  String?
+  about                String?              // User profile context for AI drafting
+  signature            String?
+  autoCategorizeSenders Boolean             @default(true)
+  coldEmailBlocker     String               @default("LABEL_AND_ARCHIVE") // "DISABLED" | "LABEL" | "LABEL_AND_ARCHIVE"
+  coldEmailPrompt      String?
+  rules                Rule[]
+  groups               Group[]
+  executedRules        ExecutedRule[]
+  threadTrackers       ThreadTracker[]
+  newsletters          Newsletter[]
+  coldEmails           ColdEmail[]
+  knowledge            Knowledge[]
+  replyMemories        ReplyMemory[]
+  feedbacks            ClassificationFeedback[]
+  emailMessages        EmailMessage[]
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+}
+
+model Rule {
+  id                  String           @id @default(cuid())
+  name                String
+  emailAccountId      String
+  emailAccount        EmailAccount     @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  systemType          SystemType?
+  instructions        String?          // Natural-language AI rule prompt
+  automate            Boolean          @default(true)
+  runOnThreads        Boolean          @default(true)
+  conditionalOperator LogicalOperator  @default(AND)
+  from                String?          // Static glob/regex pattern
+  to                  String?
+  subject             String?
+  body                String?
+  groupId             String?
+  group               Group?           @relation(fields: [groupId], references: [id])
+  actions             Action[]
+  executedRules       ExecutedRule[]
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([name, emailAccountId])
+}
+
+model Action {
+  id          String     @id @default(cuid())
+  ruleId      String
+  rule        Rule       @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  type        ActionType
+  label       String?    // Can be static string or dynamic prompt instruction
+  subject     String?
+  content     String?    // Can be static template or dynamic prompt instruction
+  to          String?
+  cc          String?
+  bcc         String?
+  url         String?    // For CALL_WEBHOOK
+  delayMinutes Int?      // For delayed actions
+}
+
+model Group {
+  id             String       @id @default(cuid())
+  name           String
+  emailAccountId String
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  items          GroupItem[]
+  rules          Rule[]
+}
+
+model GroupItem {
+  id        String          @id @default(cuid())
+  groupId   String
+  group     Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  type      GroupItemType   @default(FROM)
+  value     String          // e.g. "billing@stripe.com" or "*@github.com"
+  exclude   Boolean         @default(false)
+  source    GroupItemSource @default(USER)
+  createdAt DateTime        @default(now())
+
+  @@unique([groupId, type, value])
+}
+
+model ExecutedRule {
+  id                String             @id @default(cuid())
+  emailAccountId    String
+  emailAccount      EmailAccount       @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  ruleId            String?
+  rule              Rule?              @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  threadId          String
+  messageId         String
+  status            ExecutedRuleStatus @default(PENDING)
+  automated         Boolean            @default(true)
+  reason            String?
+  matchReasons      Json?              // MatchReason[]
+  selectionMetadata Json?              // RuleSelectionMetadata
+  actionItems       ExecutedAction[]
+  createdAt         DateTime           @default(now())
+
+  @@unique([emailAccountId, threadId, messageId])
+}
+
+model ExecutedAction {
+  id                 String               @id @default(cuid())
+  executedRuleId     String
+  executedRule       ExecutedRule         @relation(fields: [executedRuleId], references: [id], onDelete: Cascade)
+  type               ActionType
+  status             ExecutedActionStatus @default(PENDING)
+  label              String?
+  subject            String?
+  content            String?
+  to                 String?
+  cc                 String?
+  bcc                String?
+  url                String?
+  draftId            String?              // Provider draft ID for updates/cleanup
+  sentMessageId      String?
+  error              String?
+  executionStartedAt DateTime?
+  executedAt         DateTime?
+}
+
+model ThreadTracker {
+  id             String            @id @default(cuid())
+  emailAccountId String
+  emailAccount   EmailAccount      @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  threadId       String
+  messageId      String
+  type           ThreadTrackerType
+  resolved       Boolean           @default(false)
+  sentAt         DateTime
+  followUpAt     DateTime?
+
+  @@unique([emailAccountId, threadId, messageId])
+}
+
+model Newsletter {
+  id              String            @id @default(cuid())
+  emailAccountId  String
+  emailAccount    EmailAccount      @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  fromEmail       String
+  status          NewsletterStatus?
+  unsubscribeUrl  String?
+  listUnsubscribe String?
+  messageCount    Int               @default(0)
+  readCount       Int               @default(0)
+  archivedCount   Int               @default(0)
+
+  @@unique([emailAccountId, fromEmail])
+}
+
+model ColdEmail {
+  id             String          @id @default(cuid())
+  emailAccountId String
+  emailAccount   EmailAccount    @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  fromEmail      String
+  threadId       String
+  messageId      String
+  status         ColdEmailStatus @default(AI_LABELED_COLD)
+  reason         String?
+  createdAt      DateTime        @default(now())
+
+  @@unique([emailAccountId, fromEmail])
+}
+
+model Knowledge {
+  id             String       @id @default(cuid())
+  emailAccountId String
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  title          String
+  content        String       // Facts, pricing, FAQ, or policy text used when drafting replies
+  updatedAt      DateTime     @updatedAt
+}
+
+model ReplyMemory {
+  id             String       @id @default(cuid())
+  emailAccountId String
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  promptSummary  String       // What the incoming email asked
+  replyText      String       // How the user actually replied (style/tone example)
+  createdAt      DateTime     @default(now())
+}
+
+model ClassificationFeedback {
+  id             String       @id @default(cuid())
+  emailAccountId String
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  fromEmail      String
+  subject        String
+  correctRuleId  String?
+  wrongRuleId    String?
+  note           String?
+  createdAt      DateTime     @default(now())
+}
+
+model EmailMessage {
+  id             String       @id @default(cuid())
+  emailAccountId String
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  threadId       String
+  messageId      String
+  fromEmail      String
+  fromName       String?
+  toEmail        String
+  subject        String
+  snippet        String
+  textBody       String
+  htmlBody       String?
+  labels         String[]
+  unread         Boolean      @default(true)
+  archived       Boolean      @default(false)
+  listUnsubscribe String?
+  listUnsubscribePost String?
+  internalDate   DateTime
+
+  @@unique([emailAccountId, messageId])
+}
