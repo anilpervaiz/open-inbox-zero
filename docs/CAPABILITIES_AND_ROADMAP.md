@@ -32,3 +32,5 @@ Stage 5 progress: `/api/health` provides free liveness and authenticated databas
 The user API-key model stores only a hash and supports expiration and owner-scoped revocation. The six MCP tools use these keys for owned emulator accounts. Key management, session authentication, and real-provider MCP support remain outstanding.
 
 The delayed worker can resolve real Gmail and Outlook accounts using encrypted, refreshable credentials. This has not been tested against live providers; OAuth sign-in and incoming-message synchronization remain incomplete.
+
+Google Pub/Sub and Microsoft Graph webhook handlers verify notification credentials and enqueue BullMQ synchronization work. Gmail requires an initialized history cursor, and Microsoft requires a registered subscription with a stored client-state hash; automatic watch/subscription setup and renewal are not implemented. Provider notifications have mock tests; queue delivery and deduplication were tested with isolated Redis 7.4.12, and cursor recovery was tested with local PostgreSQL. Live provider delivery remains unverified. Microsoft folder removals preserve cached messages outside the inbox.

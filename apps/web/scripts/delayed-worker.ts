@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import type { EmailProvider } from "../utils/mail-provider/types";
 import { EmulatedMailProvider } from "../utils/mail-provider/emulated-provider";
 import { resolveMailProvider } from "../utils/mail-provider/provider-resolver";
+import { createProviderSyncWorker } from "../utils/worker/provider-sync-worker";
 import { processNextReplyLabelSync } from "../utils/reply-tracker/label-sync";
 import { executeScheduledAction } from "../utils/ai/choose-rule/execute";
 import { processNextDelayedAction, processPendingReplyTracking, processPendingSenderLearning, type ProviderResolver } from "../utils/worker/delayed-actions";
@@ -39,6 +40,7 @@ export async function runDelayedWorker(input: { prisma: PrismaClient; resolvePro
 
 export async function main(): Promise<void> {
   const prisma = new PrismaClient();
+  const syncWorker = process.env.REDIS_URL ? createProviderSyncWorker(prisma, process.env.REDIS_URL) : undefined;
   const abort = new AbortController();
   const stop = () => abort.abort();
   process.once("SIGINT", stop);
@@ -47,6 +49,7 @@ export async function main(): Promise<void> {
   finally {
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
+    await syncWorker?.close();
     await prisma.$disconnect();
   }
 }
