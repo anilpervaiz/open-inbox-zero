@@ -29,6 +29,7 @@
     "embedded-postgres": "16.15.0-beta.19",
     "gmail-api-parse-message": "^2.1.2",
     "html-to-text": "^10.0.1",
+    "ioredis": "^6.0.0",
     "ipaddr.js": "^2.5.0",
     "lucide-react": "^1.71.0",
     "mailauth": "^8.0.4",

@@ -26,3 +26,5 @@ Snapshot: 2026-11-11, application commit `cd76041`. “Implemented” means code
 5. Execute the [audit checklist](../ANTIGRAVITY_AUDIT_CHECKLIST.md), investigate failures, and record evidence rather than marking an item complete from implementation alone.
 
 Each stage is expected to pass `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` before its stage commit, as specified in the [build plan](../CODEX_BUILD_PLAN.md).
+
+Stage 5 progress: `/api/health` provides free liveness and authenticated database, configured Redis, and local emulator checks; live provider checks are not implemented. Local API burst limits are process-local; Redis-backed limiting exists but is not wired to production authentication or client-IP identification.

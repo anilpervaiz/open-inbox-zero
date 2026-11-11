@@ -1,3 +1,4 @@
+import { localRateLimit } from '../../../utils/rate-limit';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../utils/server/prisma';
@@ -45,6 +46,8 @@ async function accountFor(accountId: string) {
 }
 export async function GET(request: Request): Promise<Response> {
   if (!authorizeLocalApi(request)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const limit = await localRateLimit(new URL(request.url).searchParams.get('account') ?? 'default');
+  if (limit) return limit;
   try {
     const accounts = await prisma.emailAccount.findMany({ where: { provider: 'emulator' }, select: { id: true, email: true, coldEmailPrompt: true }, orderBy: { email: 'asc' } });
     const account = accounts.find((item) => item.id === new URL(request.url).searchParams.get('account')) ?? accounts[0];
@@ -69,6 +72,8 @@ export async function POST(request: Request): Promise<Response> {
   let data: z.infer<typeof input>;
   try { const text = await request.text(); if (text.length > 65536) return Response.json({ error: 'Request too large' }, { status: 413 }); data = input.parse(JSON.parse(text)); }
   catch { return Response.json({ error: 'Invalid request' }, { status: 400 }); }
+  const limit = await localRateLimit(data.accountId);
+  if (limit) return limit;
   try {
     const account = await accountFor(data.accountId);
     if (!account) return Response.json({ error: 'Account not found' }, { status: 404 });

@@ -1,3 +1,4 @@
+import { localRateLimit } from '../../../utils/rate-limit';
 import { z } from 'zod';
 import { EmulatedMailProvider } from '../../../utils/mail-provider/emulated-provider';
 import { createCleanupJob, runCleanupJob, undoCleanupJob } from '../../../utils/cleanup/cleanup-jobs';
@@ -23,6 +24,8 @@ export async function POST(request: Request): Promise<Response> {
     if (Buffer.byteLength(text) > 65_536) return Response.json({ error: 'Request too large' }, { status: 413 });
     input = command.parse(JSON.parse(text));
   } catch { return Response.json({ error: 'Invalid request' }, { status: 400 }); }
+  const limit = await localRateLimit(input.accountId);
+  if (limit) return limit;
   try {
     const account = await prisma.emailAccount.findUnique({ where: { id: input.accountId } });
     if (!account || account.provider !== 'emulator') return Response.json({ error: 'Account not found' }, { status: 404 });

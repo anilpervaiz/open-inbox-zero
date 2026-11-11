@@ -1,3 +1,4 @@
+import { localRateLimit } from '../../../utils/rate-limit';
 import { z } from 'zod';
 import { generateDigest } from '../../../utils/ai/digest/digest';
 import { authorizeLocalApi } from '../../../utils/server/local-api-auth';
@@ -11,6 +12,8 @@ export async function GET(request: Request): Promise<Response> {
   const query = new URL(request.url).searchParams;
   const parsed = params.safeParse({ accountId: query.get('accountId'), ...(query.has('start') ? { start: query.get('start') } : {}), ...(query.has('end') ? { end: query.get('end') } : {}) });
   if (!parsed.success) return Response.json({ error: 'Invalid request' }, { status: 400 });
+  const limit = await localRateLimit(parsed.data.accountId);
+  if (limit) return limit;
   try {
     const account = await prisma.emailAccount.findUnique({ where: { id: parsed.data.accountId } });
     if (!account || account.provider !== 'emulator') return Response.json({ error: 'Account not found' }, { status: 404 });
