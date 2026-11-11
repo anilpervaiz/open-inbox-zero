@@ -27,10 +27,12 @@ Snapshot: 2026-11-11, application commit `cd76041`. “Implemented” means code
 
 Each stage is expected to pass `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` before its stage commit, as specified in the [build plan](../CODEX_BUILD_PLAN.md).
 
-Stage 5 progress: `/api/health` provides free liveness and authenticated database, configured Redis, and local emulator checks; live provider checks are not implemented. Local API burst limits are process-local; MCP uses Redis-backed limiting outside local mode; trusted client-IP identification and production session authentication remain outstanding.
+Stage 5 progress: `/api/health` provides free liveness and authenticated database, configured Redis, and local emulator checks; live provider checks are not implemented. Local API burst limits are process-local; MCP uses Redis-backed limiting outside local mode; trusted client-IP identification remains outstanding.
 
-The user API-key model stores only a hash and supports expiration and owner-scoped revocation. The six MCP tools use these keys for owned emulator accounts. Key management, session authentication, and real-provider MCP support remain outstanding.
+The user API-key model stores only a hash and supports expiration and owner-scoped revocation. The six MCP tools use these keys for owned emulator accounts. Key management and real-provider MCP support remain outstanding; configured Better Auth sessions can also authenticate MCP.
 
 The delayed worker can resolve real Gmail and Outlook accounts using encrypted, refreshable credentials. This has not been tested against live providers; OAuth sign-in and incoming-message synchronization remain incomplete.
 
 Google Pub/Sub and Microsoft Graph webhook handlers verify notification credentials and enqueue BullMQ synchronization work. Gmail requires an initialized history cursor, and Microsoft requires a registered subscription with a stored client-state hash; automatic watch/subscription setup and renewal are not implemented. Provider notifications have mock tests; queue delivery and deduplication were tested with isolated Redis 7.4.12, and cursor recovery was tested with local PostgreSQL. Live provider delivery remains unverified. Microsoft folder removals preserve cached messages outside the inbox.
+
+Better Auth provides configurable Google/Microsoft identity sign-in and signed sessions, with encrypted OAuth-token storage and implicit account linking disabled. It is not yet connected to mailbox authorization, a sign-in screen, or live provider verification.
