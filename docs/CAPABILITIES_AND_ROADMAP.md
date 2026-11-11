@@ -28,3 +28,5 @@ Snapshot: 2026-11-11, application commit `cd76041`. “Implemented” means code
 Each stage is expected to pass `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` before its stage commit, as specified in the [build plan](../CODEX_BUILD_PLAN.md).
 
 Stage 5 progress: `/api/health` provides free liveness and authenticated database, configured Redis, and local emulator checks; live provider checks are not implemented. Local API burst limits are process-local; Redis-backed limiting exists but is not wired to production authentication or client-IP identification.
+
+The user API-key model stores only a hash and supports expiration and owner-scoped revocation. It is not connected to a key-management screen or an authenticated API yet.

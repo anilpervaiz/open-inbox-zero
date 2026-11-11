@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
 import { seedDemo } from "../scripts/local-dev";
+import { authenticateUserApiKey, createUserApiKey, revokeUserApiKey } from "../utils/server/api-keys";
 
 const execFileAsync = promisify(execFile);
 const webDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -46,6 +47,14 @@ test("seeds a real PostgreSQL database once without resetting user changes", asy
     prisma = new PrismaClient({ datasources: { db: { url } } });
     await seedDemo(prisma);
     expect(await prisma.emailAccount.count()).toBe(2);
+    const demo = await prisma.emailAccount.findUniqueOrThrow({ where: { id: "demo-gmail" } });
+    const issued = await createUserApiKey(prisma, { userId: demo.userId, name: "Integration test" });
+    const stored = await prisma.userApiKey.findUniqueOrThrow({ where: { id: issued.key.id } });
+    expect(stored.keyHash).not.toContain(issued.token);
+    expect(await authenticateUserApiKey(prisma, issued.token)).toEqual({ userId: demo.userId, keyId: issued.key.id });
+    expect(await revokeUserApiKey(prisma, { userId: "other-user", keyId: issued.key.id })).toBe(false);
+    expect(await revokeUserApiKey(prisma, { userId: demo.userId, keyId: issued.key.id })).toBe(true);
+    expect(await authenticateUserApiKey(prisma, issued.token)).toBeNull();
     expect(await prisma.rule.count()).toBe(12);
     expect(await prisma.knowledge.count()).toBe(6);
     expect(await prisma.replyMemory.count()).toBe(6);
