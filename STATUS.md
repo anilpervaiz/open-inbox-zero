@@ -14,7 +14,7 @@ The application is **not finished**. This file records the current implementatio
 - **Stage 3 — Cleanup and reply tracking:** Unsubscribe and cleanup services, reply tracker, digest and local emulator API routes. Commit `0669203`.
 - **Stage 4 — Local inbox interface:** Split inbox, draft composer, rule and knowledge screens, unsubscribe and cold-email views, analytics, audit log, command menu and keyboard navigation. Commit `cd76041`.
 
-At the Stage 4 commit, `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` passed. The desktop preview and a 375-pixel mobile inbox/thread view were inspected; this is not a completed browser audit of every interaction. The test suite uses an embedded PostgreSQL server and simulated provider APIs; it does not establish live Gmail or Outlook behavior.
+On 2026-11-11, after the rule and shared-package updates, `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` passed locally. `pnpm eval` is not yet implemented. The desktop preview and a 375-pixel mobile inbox/thread view were inspected; this is not a completed browser audit of every interaction. The test suite uses an embedded PostgreSQL server and simulated provider APIs; it does not establish live Gmail or Outlook behavior.
 
 Start the local seeded demo with `pnpm install` followed by `pnpm local:start`. It uses synthetic email accounts and does not require OAuth credentials or a paid model key. Demo data is not real customer or production data.
 
@@ -25,4 +25,6 @@ Start the local seeded demo with `pnpm install` followed by `pnpm local:start`. 
 3. **Stage 7:** Complete Docker and CI packaging, self-hosting and security documentation, secret scanning, and the fresh-clone check.
 4. Run the full `ANTIGRAVITY_AUDIT_CHECKLIST.md` and resolve failures. Passing stage checks is not proof that the complete checklist or real-provider workflows pass.
 
-The **Change rule** control currently records a correction and undoes the previous action; it does not execute the replacement rule on that same message. Recovery from interrupted or uncertain provider operations can require an operator to verify that the original process has stopped before using the recovery commands.
+The **Change rule** control now undoes the previous action, records feedback, and attempts an audited replacement execution. Safety guards can prevent or delay actions; interrupted or uncertain provider operations can require operator recovery. Hybrid static/group rules using AND with AI instructions now require both the deterministic match and AI selection. Consequently, learned groups on these hybrid rules do not bypass AI.
+
+The shared packages now contain an SQLite FTS5 message cache, email sanitization and status helpers, and CLI dispatch for seed, rules, digest, and evaluation. These are initial primitives: the web UI is not connected to the SQLite cache or shared components, persistent SQLite requires a supported OPFS worker, and the CLI evaluation command cannot succeed until Stage 6 provides `pnpm eval`. The local API CLI commands require the local emulator token in the environment.

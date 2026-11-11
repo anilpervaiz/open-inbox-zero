@@ -1,1 +1,1 @@
-{"name":"@open-inbox-zero/mail-sqlite","version":"0.1.0","private":true,"type":"module","exports":"./src/index.ts","scripts":{"build":"tsc --noEmit","lint":"eslint .","typecheck":"tsc --noEmit","test":"vitest run --passWithNoTests"}}
+{"name":"@open-inbox-zero/mail-sqlite","version":"0.1.0","private":true,"type":"module","exports":"./src/index.ts","scripts":{"build":"tsc --noEmit","lint":"eslint .","typecheck":"tsc --noEmit","test":"vitest run --passWithNoTests"},"dependencies":{"@sqlite.org/sqlite-wasm":"3.54.1-build1"}}

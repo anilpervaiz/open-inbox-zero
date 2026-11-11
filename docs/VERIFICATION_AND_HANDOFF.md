@@ -46,5 +46,5 @@ The demo API uses an ephemeral launcher-generated token and is limited to emulat
 
 - Decide the target behavior for a static rule that also has natural-language instructions: the implemented zero-LLM early return differs from the more restrictive wording in the original architecture.
 - Build real account authentication, authorization, credential refresh, inbound/sent event integration, and real-provider worker resolution before claiming live Gmail/Outlook support.
-- Implement the missing cache, shared UI, CLI, MCP, evaluation and release components described in the [capability map](CAPABILITIES_AND_ROADMAP.md).
+- Integrate and expand the cache, shared UI and CLI, and implement MCP, evaluation and release components described in the [capability map](CAPABILITIES_AND_ROADMAP.md).
 - Repeat applicable tests, browser checks, and the complete audit against the final integrated application. Do not claim the benchmark targets until they have actually been measured.

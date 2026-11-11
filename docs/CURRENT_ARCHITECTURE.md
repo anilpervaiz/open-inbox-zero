@@ -30,7 +30,7 @@ Solid paths describe the local demo. Gmail and Outlook adapters exist and have m
 | Background work | [Worker entry](../apps/worker/src/index.ts) and [PostgreSQL polling loop](../apps/web/scripts/delayed-worker.ts) | The bundled resolver handles emulator accounts. BullMQ/Redis and real-provider credential resolution remain open. |
 | AI | Vercel AI SDK, Zod, Google/OpenAI/Anthropic/Ollama adapters, deterministic local fallback | Live models and credentials were not verified in the recorded checks. |
 | Mail | Database-backed emulator plus Gmail and Microsoft Graph adapters behind [EmailProvider](../apps/web/utils/mail-provider/types.ts) | The provider adapters have simulated tests; that does not prove live-provider behavior. |
-| Shared packages | [mail-core](../packages/mail-core/src/index.ts) contains canonical state and optimistic mutation code | `mail-sqlite`, `mail-ui`, and `cli` currently contain scaffolds, not the full target capabilities. |
+| Shared packages | [mail-core](../packages/mail-core/src/index.ts) contains canonical state and optimistic mutation code | `mail-sqlite` provides an FTS5 message cache (OPFS persistence requires a supported worker), `mail-ui` provides sanitization and display helpers, and `cli` dispatches local seed/rules/digest/evaluation commands. These are not yet integrated as the full target architecture. |
 | Tests | Vitest with temporary PostgreSQL integration tests; mocked provider/network tests | Desktop and limited mobile preview checks were performed; the full audit checklist is not complete. |
 
 ## Local startup and data
@@ -44,7 +44,7 @@ The Next.js server reads account-scoped data through Prisma. Local API handlers 
 ## Message and rule flow
 
 1. [runRules](../apps/web/utils/ai/choose-rule/run-rules.ts) checks account/provider binding, loads the provider message, checks the persisted account message, and detects existing executions.
-2. [findMatchingRules](../apps/web/utils/ai/choose-rule/match-rules.ts) checks reply/calendar/no-reply heuristics, then static conditions and groups, then the unknown-sender cold gate, then the AI router if no earlier decision settles the message. Matching group/static cases bypass the router.
+2. [findMatchingRules](../apps/web/utils/ai/choose-rule/match-rules.ts) checks reply/calendar/no-reply heuristics, then static conditions and groups, then the unknown-sender cold gate, then the AI router if no earlier decision settles the message. Matching group/static cases bypass the router only for rules without AI instructions or with OR conditions; AND rules with instructions also require AI selection.
 3. [aiChooseRule](../apps/web/utils/ai/choose-rule/ai-choose-rule.ts) uses structured output and rejects unknown rule names; email content is treated as untrusted. The no-key path uses deterministic matching. [choose-args](../apps/web/utils/ai/choose-rule/choose-args.ts) is a separate draft-generation step using knowledge and reply examples.
 4. [executeAct](../apps/web/utils/ai/choose-rule/execute.ts) records a pending rule and actions before provider mutations. It applies protected-sender and outbound trust guards, records outcomes and snapshots, and supports undo where effects are reversible. Outbound and uncertain outcomes are not blindly retried.
 5. [Sender learning](../apps/web/utils/rule/ai-sender-pattern-learning.ts) can promote consistent AI classifications to a learned group and remove a learned item on correction. Reply tracking and a label-reconciliation outbox are implemented under [reply-tracker](../apps/web/utils/reply-tracker).
