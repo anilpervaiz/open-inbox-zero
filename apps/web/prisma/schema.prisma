@@ -75,6 +75,16 @@ enum ThreadTrackerType {
   AWAITING_REPLY
 }
 
+enum ReplyTrackingEventKind {
+  INCOMING
+  SENT
+}
+
+enum ReplyLabelOperation {
+  ADD
+  REMOVE
+}
+
 enum ColdEmailStatus {
   AI_LABELED_COLD
   USER_MARKED_COLD
@@ -115,6 +125,9 @@ model EmailAccount {
   groups               Group[]
   executedRules        ExecutedRule[]
   threadTrackers       ThreadTracker[]
+  replyTrackingEvents  ReplyTrackingEvent[]
+  replyThreadStates    ReplyThreadState[]
+  replyLabelSyncs      ReplyLabelSync[]
   newsletters          Newsletter[]
   coldEmails           ColdEmail[]
   knowledge            Knowledge[]
@@ -195,12 +208,14 @@ model ExecutedRule {
   rule              Rule?              @relation(fields: [ruleId], references: [id], onDelete: SetNull)
   threadId          String
   messageId         String
+  sourceMessageId   String?            // Real mail ID when messageId identifies an internal audit
   status            ExecutedRuleStatus @default(PENDING)
   automated         Boolean            @default(true)
   reason            String?
   matchReasons      Json?              // MatchReason[]
   selectionMetadata Json?              // RuleSelectionMetadata
   actionItems       ExecutedAction[]
+  replyLabelSync    ReplyLabelSync?
   createdAt         DateTime           @default(now())
 
   @@unique([emailAccountId, threadId, messageId])
@@ -213,6 +228,7 @@ model ExecutedAction {
   type               ActionType
   status             ExecutedActionStatus @default(PENDING)
   label              String?
+  labelOperation     ReplyLabelOperation? // Tracker audit add/remove; null is a normal label action
   subject            String?
   content            String?
   to                 String?
@@ -245,6 +261,8 @@ model DelayedAction {
   startedAt        DateTime?
   learningPending  Boolean             @default(false)
   learningNextAttemptAt DateTime?
+  trackerPending   Boolean             @default(false)
+  trackerNextAttemptAt DateTime?
   attempts         Int                 @default(0)
   error            String?
   createdAt        DateTime            @default(now())
@@ -264,6 +282,62 @@ model ThreadTracker {
   followUpAt     DateTime?
 
   @@unique([emailAccountId, threadId, messageId])
+}
+
+// Durable input events permit idempotent replay when provider notifications arrive out of order.
+model ReplyTrackingEvent {
+  id             String                 @id @default(cuid())
+  emailAccountId String
+  emailAccount   EmailAccount           @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  threadId       String
+  messageId      String
+  kind           ReplyTrackingEventKind
+  sender         String
+  recipients     String[]
+  occurredAt     DateTime
+  requiresReply  Boolean                @default(false)
+  requiresReplySuppressed Boolean        @default(false)
+  ignored        Boolean                @default(false)
+  followUpAt     DateTime?
+  createdAt      DateTime               @default(now())
+
+  @@unique([emailAccountId, threadId, messageId])
+  @@index([emailAccountId, threadId, occurredAt])
+}
+
+model ReplyThreadState {
+  id             String       @id @default(cuid())
+  emailAccountId String
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  threadId       String
+  revision       Int          @default(0)
+  needsReply     Int          @default(0)
+  awaitingReply  Int          @default(0)
+
+  @@unique([emailAccountId, threadId])
+}
+
+// The audit exists before any provider label calls. Uncertain calls are never replayed automatically.
+model ReplyLabelSync {
+  id                String              @id @default(cuid())
+  emailAccountId    String
+  emailAccount      EmailAccount        @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  threadId          String
+  sourceMessageId   String
+  revision          Int
+  executedRuleId    String              @unique
+  executedRule      ExecutedRule        @relation(fields: [executedRuleId], references: [id], onDelete: Cascade)
+  status            DelayedActionStatus @default(PENDING)
+  claimToken        String?
+  leaseUntil        DateTime?
+  startedAt         DateTime?
+  attempts          Int                 @default(0)
+  nextAttemptAt     DateTime            @default(now())
+  error             String?
+  createdAt         DateTime            @default(now())
+
+  @@unique([emailAccountId, threadId, revision])
+  @@index([status, createdAt])
 }
 
 model Newsletter {
@@ -363,6 +437,8 @@ model ThreadExecutionLock {
   emailAccountId String
   threadId       String
   ownerClaimToken String?
+  ownerCleanupJobId String?
+  ownerTrackerJobId String?
   createdAt      DateTime @default(now())
 
   @@unique([emailAccountId, threadId])
@@ -392,4 +468,60 @@ model ExecutionRecovery {
   createdAt          DateTime @default(now())
 
   @@index([emailAccountId, threadId])
+}
+
+enum CleanupJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  PARTIAL_ERROR
+  UNDONE
+}
+
+enum CleanupThreadStatus {
+  PENDING
+  STARTED
+  COMPLETED
+  SKIPPED
+  FAILED
+  UNDONE
+}
+
+// Cleanup jobs are scoped to one email account and keep reversible per-thread snapshots.
+model CleanupJob {
+  id             String           @id @default(cuid())
+  emailAccountId String
+  olderThan      DateTime
+  mode           String
+  status         CleanupJobStatus @default(PENDING)
+  threads        CleanupThread[]
+  createdAt      DateTime         @default(now())
+
+  @@index([emailAccountId, createdAt])
+}
+
+model CleanupThread {
+  id              String              @id @default(cuid())
+  jobId           String
+  job             CleanupJob          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  threadId        String
+  status          CleanupThreadStatus @default(PENDING)
+  undoSnapshot    Json?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  error           String?
+
+  @@unique([jobId, threadId])
+}
+
+model CleanupRecovery {
+  id               String   @id @default(cuid())
+  emailAccountId   String
+  cleanupJobId     String
+  operator         String
+  stoppedEvidence  String
+  releasedLocks    Int
+  createdAt        DateTime @default(now())
+
+  @@index([emailAccountId, cleanupJobId])
 }

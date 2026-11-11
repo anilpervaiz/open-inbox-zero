@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { EmailAttachment, EmailMessage, ExecutedAction, PrismaClient } from "@prisma/client";
+import type { EmailAttachment, EmailMessage, ExecutedAction, Prisma, PrismaClient } from "@prisma/client";
 import type { EmailProvider, ParsedMessage } from "./types";
 import { formatForwardMessage, type ForwardInput } from "./forward";
 
@@ -70,6 +70,11 @@ export class EmulatedMailProvider implements EmailProvider {
     const message = await this.prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId: this.emailAccountId, messageId } }, include: { attachments: true } });
     if (!message) throw new Error("Message not found");
     return parseMessage(message);
+  }
+
+  async getRawMessage(messageId: string): Promise<Uint8Array> {
+    void messageId;
+    throw new Error("The emulator does not have authenticated raw MIME");
   }
 
   isReplyInThread(message: ParsedMessage): boolean { return Boolean(message.headers.inReplyTo || message.headers.references); }
@@ -150,10 +155,27 @@ export class EmulatedMailProvider implements EmailProvider {
   async createDraft(input: MailInput): Promise<{ draftId: string }> { return { draftId: await this.createMessage(input, "DRAFT") }; }
   async sendEmail(input: MailInput): Promise<{ messageId: string }> { return { messageId: await this.createMessage(input, "SENT") }; }
 
+  async restoreArchive(threadId: string, snapshotValue: Prisma.JsonValue): Promise<void> {
+    const snapshot = readSnapshot(snapshotValue, threadId);
+    const current = await this.messages(threadId);
+    if (snapshot.messages.some((original) => !current.some((message) => message.messageId === original.messageId))) throw new Error("Cannot restore: an original message is missing");
+    const updates = current.flatMap((message) => {
+      const original = snapshot.messages.find((item) => item.messageId === message.messageId);
+      if (!original || original.archived || !message.archived) return [];
+      const labels = original.labels.includes("INBOX") ? [...new Set([...message.labels, "INBOX"])] : message.labels;
+      return [this.prisma.emailMessage.update({ where: { id: message.id }, data: { archived: false, labels } })];
+    });
+    await this.prisma.$transaction(updates);
+  }
+
   async undoAction(action: ExecutedAction, threadId: string): Promise<void> {
     const saved = await this.prisma.executedAction.findFirst({ where: { id: action.id, executedRule: { emailAccountId: this.emailAccountId, threadId } } });
     if (!saved || !(saved.status === "COMPLETED" || (saved.status === "FAILED" && saved.executionStartedAt && saved.undoSnapshot))) {
       throw new Error("Reversible action not found for this account and thread");
+    }
+    if (saved.type === "ARCHIVE") {
+      await this.restoreArchive(threadId, saved.undoSnapshot);
+      return;
     }
     if (saved.type === "DRAFT_EMAIL") {
       if (!saved.draftId) throw new Error("Draft ID is missing");
@@ -165,6 +187,7 @@ export class EmulatedMailProvider implements EmailProvider {
     if (!["ARCHIVE", "LABEL", "MARK_SEEN", "MARK_SPAM"].includes(saved.type)) throw new Error(`Action ${saved.type} cannot be undone`);
     const snapshot = readSnapshot(saved.undoSnapshot, threadId);
     const current = await this.messages(threadId);
+    if (snapshot.messages.some((original) => !current.some((message) => message.messageId === original.messageId))) throw new Error("Cannot undo: an original message is missing");
     const updates = current.flatMap((message) => {
       const previous = snapshot.messages.find((item) => item.messageId === message.messageId);
       if (!previous) return [];
@@ -173,12 +196,13 @@ export class EmulatedMailProvider implements EmailProvider {
         if (previous.labels.includes("INBOX") && !labels.includes("INBOX")) labels.push("INBOX");
         return [this.prisma.emailMessage.update({ where: { id: message.id }, data: { archived: previous.archived, labels } })];
       }
-      if (saved.type === "ARCHIVE" && !previous.archived && message.archived) {
-        const labels = previous.labels.includes("INBOX") ? [...new Set([...message.labels, "INBOX"])] : message.labels;
-        return [this.prisma.emailMessage.update({ where: { id: message.id }, data: { archived: false, labels } })];
-      }
-      if (saved.type === "LABEL" && saved.label && !previous.labels.includes(saved.label)) {
-        return [this.prisma.emailMessage.update({ where: { id: message.id }, data: { labels: message.labels.filter((label) => label !== saved.label) } })];
+      if (saved.type === "LABEL" && saved.label) {
+        if (saved.labelOperation === "REMOVE" && previous.labels.includes(saved.label) && !message.labels.includes(saved.label)) {
+          return [this.prisma.emailMessage.update({ where: { id: message.id }, data: { labels: [...message.labels, saved.label] } })];
+        }
+        if (saved.labelOperation !== "REMOVE" && !previous.labels.includes(saved.label) && message.labels.includes(saved.label)) {
+          return [this.prisma.emailMessage.update({ where: { id: message.id }, data: { labels: message.labels.filter((label) => label !== saved.label) } })];
+        }
       }
       if (saved.type === "MARK_SEEN" && previous.unread && !message.unread) {
         const labels = previous.labels.includes("UNREAD") ? [...new Set([...message.labels, "UNREAD"])] : message.labels;

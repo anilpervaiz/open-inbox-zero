@@ -160,7 +160,7 @@ async function main(): Promise<void> {
       databaseUrl = `postgresql://postgres:${encodeURIComponent(password)}@127.0.0.1:${port}/postgres?schema=public`;
     }
 
-    const env = { ...process.env, DATABASE_URL: databaseUrl };
+    const env = { ...process.env, DATABASE_URL: databaseUrl, LOCAL_EMULATOR_MODE: "1", LOCAL_EMULATOR_TOKEN: randomBytes(32).toString("hex") };
     process.env.DATABASE_URL = databaseUrl;
     await run("pnpm", ["exec", "prisma", "db", "push", "--skip-generate"], env);
     const prisma = new PrismaClient();

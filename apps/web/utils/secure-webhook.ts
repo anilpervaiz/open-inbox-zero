@@ -19,12 +19,14 @@ export function isPublicAddress(value: string): boolean {
   return true;
 }
 
-function parseUrl(value: string): URL {
+export function parsePublicHttpsUrl(value: string): URL {
   let url: URL;
+  if ([...value].some((character) => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127)) throw new Error("Invalid webhook URL");
   try { url = new URL(value); } catch { throw new Error("Invalid webhook URL"); }
   if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.hash) throw new Error("Webhook URL must be HTTPS without credentials or a fragment");
   const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, "");
   if (hostname === "localhost" || hostname.endsWith(".localhost")) throw new Error("Webhook destination is not public");
+  if (isIP(hostname) && !isPublicAddress(hostname)) throw new Error("Webhook destination is not public");
   return url;
 }
 
@@ -48,11 +50,18 @@ async function resolveTarget(url: URL, signal: AbortSignal): Promise<Address> {
   return addresses[0];
 }
 
-/** Send one explicit webhook without following redirects or resolving its hostname again. */
-export async function executeWebhook(input: { url: string; payload: unknown }): Promise<void> {
-  const url = parseUrl(input.url);
-  let body: string | undefined;
-  try { body = JSON.stringify(input.payload); } catch { throw new Error("Invalid webhook payload"); }
+/** Verify DNS answers for a candidate without contacting the destination. */
+export async function validatePublicHttpsUrl(value: string): Promise<string> {
+  const url = parsePublicHttpsUrl(value);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEADLINE_MS);
+  try { await resolveTarget(url, controller.signal); return url.href; }
+  finally { clearTimeout(timer); }
+}
+
+/** Send one explicit POST without following redirects or resolving its hostname again. */
+async function securePost(urlValue: string, body: string, contentType: string): Promise<void> {
+  const url = parsePublicHttpsUrl(urlValue);
   if (!body || Buffer.byteLength(body) > MAX_PAYLOAD_BYTES) throw new Error("Invalid webhook payload size");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEADLINE_MS);
@@ -62,7 +71,7 @@ export async function executeWebhook(input: { url: string; payload: unknown }): 
     await new Promise<void>((resolveRequest, reject) => {
       const request = https.request(url, {
         method: "POST",
-        headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body) },
+        headers: { "content-type": contentType, "content-length": Buffer.byteLength(body) },
         lookup: pinnedLookup,
         family: target.family,
         agent: false,
@@ -90,4 +99,16 @@ export async function executeWebhook(input: { url: string; payload: unknown }): 
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function executeOneClickPost(url: string): Promise<void> {
+  await securePost(url, "List-Unsubscribe=One-Click", "application/x-www-form-urlencoded");
+}
+
+/** Send one explicit webhook without following redirects or resolving its hostname again. */
+export async function executeWebhook(input: { url: string; payload: unknown }): Promise<void> {
+  let body: string | undefined;
+  try { body = JSON.stringify(input.payload); } catch { throw new Error("Invalid webhook payload"); }
+  if (!body || Buffer.byteLength(body) > MAX_PAYLOAD_BYTES) throw new Error("Invalid webhook payload size");
+  await securePost(input.url, body, "application/json");
 }

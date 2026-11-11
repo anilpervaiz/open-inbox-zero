@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import type { EmailProvider } from "../mail-provider/types";
 import { analyzeSenderPattern } from "../rule/ai-sender-pattern-learning";
+import { recordIncomingMessage, recordSentReply } from "../reply-tracker/events";
 
 const DEFAULT_LEASE_MS = 120_000;
 export type ProviderResolver = (emailAccountId: string) => Promise<EmailProvider>;
@@ -107,4 +108,72 @@ export async function processPendingSenderLearning(prisma: PrismaClient): Promis
     await prisma.delayedAction.updateMany({ where: { id: job.id, learningPending: true }, data: { learningNextAttemptAt: new Date(Date.now() + 60_000) } });
   }
   return true;
+}
+
+/** Retry tracker bookkeeping without replaying an already-completed provider mutation. */
+export async function processPendingReplyTracking(input: { prisma: PrismaClient; resolveProvider: ProviderResolver }): Promise<boolean> {
+  const { prisma, resolveProvider } = input;
+  const job = await prisma.delayedAction.findFirst({ where: { trackerPending: true, OR: [{ trackerNextAttemptAt: null }, { trackerNextAttemptAt: { lte: new Date() } }] }, include: { executedAction: { include: { executedRule: true } } }, orderBy: { createdAt: "asc" } });
+  if (!job) return false;
+  const execution = job.executedAction.executedRule;
+  const emailAccountId = execution.emailAccountId;
+  let lock;
+  try {
+    lock = await prisma.threadExecutionLock.create({ data: { emailAccountId, threadId: execution.threadId, ownerTrackerJobId: job.id } });
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+      await prisma.delayedAction.updateMany({ where: { id: job.id, trackerPending: true }, data: { trackerNextAttemptAt: new Date(Date.now() + 1000) } });
+      return true;
+    }
+    throw error;
+  }
+  try {
+    const current = await prisma.delayedAction.findUnique({ where: { id: job.id }, include: { executedAction: { include: { executedRule: true } } } });
+    if (!current?.trackerPending) return true;
+    const action = current.executedAction;
+    const latestExecution = action.executedRule;
+    if (latestExecution.status === "REJECTED" || action.status !== "COMPLETED") {
+      await prisma.delayedAction.updateMany({ where: { id: job.id, trackerPending: true }, data: { trackerPending: false, trackerNextAttemptAt: null } });
+      return true;
+    }
+    try {
+      const provider = await resolveProvider(emailAccountId);
+      if (provider.emailAccountId !== emailAccountId) throw new Error("Provider does not belong to account");
+      if (action.type === "TRACK_THREAD") {
+        await recordIncomingMessage({ prisma, provider, emailAccountId, messageId: latestExecution.messageId, requiresReply: true });
+      } else if (action.type === "REPLY" && action.sentMessageId) {
+        const synced = await prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId, messageId: action.sentMessageId } }, select: { id: true } });
+        if (!synced) throw new Error("Sent message is not synced yet");
+        await recordSentReply({ prisma, provider, emailAccountId, messageId: action.sentMessageId });
+      } else {
+        throw new Error("Completed action has no valid tracker event");
+      }
+      await prisma.delayedAction.updateMany({ where: { id: job.id, trackerPending: true }, data: { trackerPending: false, trackerNextAttemptAt: null } });
+    } catch {
+      await prisma.delayedAction.updateMany({ where: { id: job.id, trackerPending: true }, data: { trackerNextAttemptAt: new Date(Date.now() + 60_000) } });
+    }
+    return true;
+  } finally {
+    await prisma.threadExecutionLock.deleteMany({ where: { id: lock.id, emailAccountId, threadId: execution.threadId, ownerTrackerJobId: job.id } });
+  }
+}
+
+/** Only an operator who independently stopped the original tracker worker may release its lock. */
+export async function recoverAbandonedTrackerLock(input: { prisma: PrismaClient; emailAccountId: string; delayedActionId: string; confirmedStopped: boolean; operator: string; stoppedEvidence: string }) {
+  const operator = input.operator.trim();
+  const stoppedEvidence = input.stoppedEvidence.trim();
+  const hasControl = [...operator + stoppedEvidence].some((character) => { const code = character.charCodeAt(0); return code < 32 || code === 127; });
+  if (!input.confirmedStopped) throw new Error("Operator confirmation that the tracker process stopped is required");
+  if (!operator || operator.length > 120 || stoppedEvidence.length < 10 || stoppedEvidence.length > 1000 || hasControl) throw new Error("Operator and specific stop evidence are required");
+  return input.prisma.$transaction(async (tx) => {
+    const job = await tx.delayedAction.findFirst({ where: { id: input.delayedActionId, executedAction: { executedRule: { emailAccountId: input.emailAccountId } } }, include: { executedAction: { include: { executedRule: true } } } });
+    if (!job) throw new Error("Tracker job not found for account");
+    const threadId = job.executedAction.executedRule.threadId;
+    const lock = await tx.threadExecutionLock.findUnique({ where: { emailAccountId_threadId: { emailAccountId: input.emailAccountId, threadId } } });
+    if (!lock || lock.ownerTrackerJobId !== job.id || lock.ownerClaimToken !== null || lock.ownerCleanupJobId !== null) throw new Error("Tracker-owned lock not found");
+    const audit = await tx.executionRecovery.create({ data: { emailAccountId: input.emailAccountId, threadId, abandonedLockId: lock.id, operator, stoppedEvidence: `Tracker lock: ${stoppedEvidence}`, affectedExecutions: 0 } });
+    const deleted = await tx.threadExecutionLock.deleteMany({ where: { id: lock.id, emailAccountId: input.emailAccountId, threadId, ownerTrackerJobId: job.id } });
+    if (deleted.count !== 1) throw new Error("Tracker lock changed during recovery");
+    return { recoveryId: audit.id, trackerPending: job.trackerPending };
+  }, { isolationLevel: "Serializable" });
 }

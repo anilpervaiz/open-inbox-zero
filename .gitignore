@@ -9,3 +9,5 @@ coverage/
 !.env.example
 .local-data/
 graphify-out/
+
+.pnpm-store/

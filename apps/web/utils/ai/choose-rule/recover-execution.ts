@@ -28,6 +28,8 @@ export async function recoverAbandonedImmediateExecution(input: RecoverAbandoned
     const lock = await tx.threadExecutionLock.findUnique({ where: { emailAccountId_threadId: { emailAccountId, threadId } } });
     if (!lock) throw new Error("Abandoned thread lock not found");
     if (lock.ownerClaimToken !== null) throw new Error("Delayed worker locks require the delayed-job recovery procedure");
+    if (lock.ownerCleanupJobId !== null) throw new Error("Cleanup locks require the cleanup recovery procedure");
+    if (lock.ownerTrackerJobId !== null) throw new Error("Tracker locks require the tracker recovery procedure");
     const pending = await tx.executedRule.findMany({ where: { emailAccountId, threadId, status: "PENDING" }, include: { actionItems: { include: { delayedAction: true } } } });
     if (pending.some((execution) => execution.actionItems.some((action) => action.delayedAction))) throw new Error("Execution has delayed jobs and requires the delayed-job recovery procedure");
     for (const execution of pending) {
@@ -44,7 +46,7 @@ export async function recoverAbandonedImmediateExecution(input: RecoverAbandoned
       await tx.executedRule.update({ where: { id: execution.id }, data: { status, reason: [execution.reason, `Recovered by ${operator}; evidence: ${stoppedEvidence}`].filter(Boolean).join("\n") } });
     }
     const recovery = await tx.executionRecovery.create({ data: { emailAccountId, threadId, abandonedLockId: lock.id, operator, stoppedEvidence, affectedExecutions: pending.length } });
-    const deleted = await tx.threadExecutionLock.deleteMany({ where: { id: lock.id, emailAccountId, threadId, ownerClaimToken: null } });
+    const deleted = await tx.threadExecutionLock.deleteMany({ where: { id: lock.id, emailAccountId, threadId, ownerClaimToken: null, ownerCleanupJobId: null, ownerTrackerJobId: null } });
     if (deleted.count !== 1) throw new Error("Abandoned lock changed during recovery");
     return { recoveryId: recovery.id, affectedExecutions: pending.length };
   }, { isolationLevel: "Serializable" });

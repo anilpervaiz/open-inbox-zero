@@ -35,6 +35,8 @@ export interface EmailProvider {
   listThreads(options: { query?: string; labelIds?: string[]; maxResults?: number }): Promise<{ threadIds: string[] }>;
   getThread(threadId: string): Promise<{ id: string; messages: ParsedMessage[] }>;
   getMessage(messageId: string): Promise<ParsedMessage>;
+  /** Exact provider MIME bytes; callers must verify authenticity independently. */
+  getRawMessage(messageId: string): Promise<Uint8Array>;
   isReplyInThread(message: ParsedMessage): boolean;
   archiveThread(threadId: string): Promise<void>;
   markSpam(threadId: string): Promise<void>;
@@ -46,5 +48,6 @@ export interface EmailProvider {
   createDraft(input: { threadId?: string; to: string; cc?: string; subject: string; body: string; inReplyTo?: string }): Promise<{ draftId: string }>;
   sendEmail(input: { threadId?: string; to: string; cc?: string; subject: string; body: string; inReplyTo?: string }): Promise<{ messageId: string }>;
   captureUndoSnapshot(threadId: string): Promise<Prisma.InputJsonObject>;
+  restoreArchive(threadId: string, snapshot: Prisma.JsonValue): Promise<void>;
   undoAction(action: ExecutedAction, threadId: string): Promise<void>;
 }

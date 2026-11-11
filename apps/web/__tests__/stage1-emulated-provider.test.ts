@@ -69,6 +69,16 @@ test("emulator persists lifecycle changes, undoes only its effects, and isolates
     expect((await provider.listThreads({ labelIds: ["Follow up"] })).threadIds).toEqual(["thread"]);
     await provider.undoAction(newLabel, "thread");
     expect((await provider.listThreads({ labelIds: ["Follow up"] })).threadIds).toEqual([]);
+    const firstBefore = await prisma.emailMessage.findUniqueOrThrow({ where: { emailAccountId_messageId: { emailAccountId: "one", messageId: "first" } } });
+    await prisma.emailMessage.update({ where: { id: firstBefore.id }, data: { labels: [...firstBefore.labels, "To Reply"] } });
+    const removalSnapshot = await provider.captureUndoSnapshot("thread");
+    const removal = await prisma.executedAction.create({ data: { executedRuleId: execution.id, type: "LABEL", status: "COMPLETED", label: "To Reply", labelOperation: "REMOVE", undoSnapshot: removalSnapshot as Prisma.InputJsonValue } });
+    await provider.removeLabel("thread", "To Reply");
+    await provider.addLabel("thread", "Unrelated");
+    await provider.undoAction(removal, "thread");
+    expect((await provider.getMessage("first")).labelIds).toContain("To Reply");
+    expect((await provider.getMessage("second")).labelIds).not.toContain("To Reply");
+    expect((await provider.getMessage("first")).labelIds).toContain("Unrelated");
     const readSnapshot = await provider.captureUndoSnapshot("thread");
     const read = await prisma.executedAction.create({ data: { executedRuleId: execution.id, type: "MARK_SEEN", status: "COMPLETED", undoSnapshot: readSnapshot as Prisma.InputJsonValue } });
     await provider.markRead("thread", true);

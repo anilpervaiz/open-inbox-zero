@@ -1,3 +1,4 @@
+import { suppressReplyRequirement, undoTrackerAudit } from "../../reply-tracker/events";
 import type { Action, ActionType, ExecutedAction, Prisma, PrismaClient, Rule } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import type { EmailProvider, ParsedMessage } from "../../mail-provider/types";
@@ -168,14 +169,15 @@ async function executeActUnlocked(input: ExecuteActInput) {
 }
 
 /** Execute one audited action. A failure after I/O is retained for reconciliation. */
-async function executeActionEffect(input: { prisma: PrismaClient; provider: EmailProvider; emailAccountId: string; message: ParsedMessage; sender: string; action: ExecutedAction; source: Action; executionId: string }): Promise<boolean> {
-  const { prisma, provider, emailAccountId, message, sender, action, source, executionId } = input;
+async function executeActionEffect(input: { prisma: PrismaClient; provider: EmailProvider; emailAccountId: string; message: ParsedMessage; sender: string; action: ExecutedAction; source: Action; executionId: string; delayedJobId?: string }): Promise<boolean> {
+  const { prisma, provider, emailAccountId, message, sender, action, source, executionId, delayedJobId } = input;
     try {
       if (action.type === "TRACK_THREAD") {
         await prisma.$transaction(async (tx) => {
           const existingTracker = await tx.threadTracker.findUnique({ where: { emailAccountId_threadId_messageId: { emailAccountId, threadId: message.threadId, messageId: message.id } } });
           const created = existingTracker ?? await tx.threadTracker.create({ data: { emailAccountId, threadId: message.threadId, messageId: message.id, type: "NEEDS_REPLY", sentAt: message.internalDate } });
           await tx.executedAction.update({ where: { id: action.id }, data: { status: "COMPLETED", executedAt: new Date(), undoSnapshot: { provider: "internal", threadId: message.threadId, createdTrackerId: existingTracker ? null : created.id } } });
+          if (delayedJobId) await tx.delayedAction.update({ where: { id: delayedJobId }, data: { trackerPending: true, trackerNextAttemptAt: null } });
         });
         return true;
       }
@@ -211,7 +213,10 @@ async function executeActionEffect(input: { prisma: PrismaClient; provider: Emai
           sentMessageId = (await provider.sendEmail(args)).messageId;
         }
       }
-      await prisma.executedAction.update({ where: { id: action.id }, data: { status: "COMPLETED", draftId, draftThreadId, sentMessageId, executedAt: new Date() } });
+      await prisma.$transaction(async (tx) => {
+        await tx.executedAction.update({ where: { id: action.id }, data: { status: "COMPLETED", draftId, draftThreadId, sentMessageId, executedAt: new Date() } });
+        if (delayedJobId && source.type === "REPLY" && action.type === "REPLY" && sentMessageId) await tx.delayedAction.update({ where: { id: delayedJobId }, data: { trackerPending: true, trackerNextAttemptAt: null } });
+      });
       return true;
     } catch {
       await prisma.executedAction.update({ where: { id: action.id }, data: { status: "FAILED", error: "Action failed" } });
@@ -276,7 +281,7 @@ export async function executeScheduledAction(input: { prisma: PrismaClient; prov
       return skipScheduled("Protected or unverifiable thread");
     }
     if (!await markStarted()) throw new Error("Delayed action claim expired before execution");
-    await executeActionEffect({ prisma, provider, emailAccountId, message, sender, action, source, executionId: execution.id });
+    await executeActionEffect({ prisma, provider, emailAccountId, message, sender, action, source, executionId: execution.id, delayedJobId: job.id });
     await updateExecution();
     return prisma.executedAction.findUniqueOrThrow({ where: { id: action.id } });
   }, claimToken);
@@ -296,6 +301,20 @@ async function undoExecutedRuleUnlocked(input: UndoInput) {
   if (provider.emailAccountId !== emailAccountId) throw new Error("Provider does not belong to account");
   const execution = await prisma.executedRule.findFirst({ where: { id: executedRuleId, emailAccountId }, include: { actionItems: { include: { delayedAction: true } }, emailAccount: true } });
   if (!execution || execution.emailAccount.provider !== provider.providerName) throw new Error("Execution not found for account");
+  const metadata = execution.selectionMetadata;
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata) && metadata.stage === "TRACKER") {
+    const sync = await prisma.replyLabelSync.findUnique({ where: { executedRuleId } });
+    if (sync?.status === "UNCERTAIN") {
+      const uncertain = execution.actionItems.filter((action) => action.status === "FAILED" && action.executionStartedAt);
+      if (!uncertain.length || uncertain.some((action) => !action.undoSnapshot)) throw new Error("Tracker label outcome requires manual reconciliation");
+      for (const action of uncertain) {
+        await provider.undoAction(action, execution.threadId);
+        await prisma.executedAction.update({ where: { id: action.id }, data: { status: "SKIPPED", error: "Reconciled after provider failure" } });
+      }
+      await prisma.replyLabelSync.updateMany({ where: { id: sync.id, status: "UNCERTAIN" }, data: { status: "CANCELLED", error: "Reconciled before undo" } });
+    }
+    return undoTrackerAudit({ prisma, emailAccountId, executedRuleId });
+  }
   if (execution.status === "REJECTED") return execution;
   const pending = execution.actionItems.filter((action) => action.status === "PENDING");
   if (execution.status === "PENDING" && (pending.length === 0 || pending.some((action) => !action.delayedAction || !["PENDING", "CLAIMED"].includes(action.delayedAction.status) || action.delayedAction.startedAt !== null))) throw new Error("Execution is still in progress or requires reconciliation");
@@ -320,10 +339,7 @@ async function undoExecutedRuleUnlocked(input: UndoInput) {
     if (action.type === "TRACK_THREAD") {
       const snapshot = action.undoSnapshot;
       if (!snapshot || Array.isArray(snapshot) || typeof snapshot !== "object" || snapshot.provider !== "internal" || snapshot.threadId !== execution.threadId || !(typeof snapshot.createdTrackerId === "string" || snapshot.createdTrackerId === null)) throw new Error("Invalid tracker undo snapshot");
-      if (snapshot.createdTrackerId) {
-        const deleted = await prisma.threadTracker.deleteMany({ where: { id: snapshot.createdTrackerId, emailAccountId, threadId: execution.threadId, messageId: execution.messageId, type: "NEEDS_REPLY", resolved: false } });
-        if (deleted.count !== 1) throw new Error("Tracker changed since execution");
-      }
+      await suppressReplyRequirement({ prisma, emailAccountId, threadId: execution.threadId, messageId: execution.messageId });
     } else await provider.undoAction(action, execution.threadId);
     await prisma.executedAction.update({ where: { id: action.id }, data: { status: "SKIPPED", error: action.status === "FAILED" ? "Reverted after provider failure" : "Reverted" } });
   }

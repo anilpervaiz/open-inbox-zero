@@ -1,4 +1,4 @@
-import type { ExecutedAction } from "@prisma/client";
+import type { ExecutedAction, Prisma } from "@prisma/client";
 import type { EmailProvider, ParsedMessage } from "./types";
 import type { ForwardInput } from "./forward";
 
@@ -14,6 +14,7 @@ type GraphMessage = {
   attachments?: GraphAttachment[];
 };
 type Page<T> = { value: T[]; "@odata.nextLink"?: string };
+const MAX_RAW_MESSAGE_BYTES = 25_000_000;
 type DraftInput = Parameters<EmailProvider["createDraft"]>[0];
 type OutlookSnapshot = { provider: "microsoft"; threadId: string; messages: { id: string; parentFolderId: string; isRead: boolean; categories: string[] }[] };
 const base = "https://graph.microsoft.com/v1.0";
@@ -178,6 +179,37 @@ export class OutlookProvider implements EmailProvider {
     const message = await this.request<GraphMessage>(`/me/messages/${encodeURIComponent(messageId)}?${new URLSearchParams({ "$select": select })}`);
     return this.parse(message);
   }
+  async getRawMessage(messageId: string): Promise<Uint8Array> {
+    if (!messageId.trim() || messageId === "." || messageId === "..") throw new Error("Message ID is required");
+    let response: Response;
+    try {
+      const token = await this.accessToken();
+      const url = new URL(`${base}/me/messages/${encodeURIComponent(messageId)}/$value`);
+      response = await this.requestFetch(url, { headers: { Authorization: `Bearer ${token}`, Prefer: 'IdType="ImmutableId"' }, redirect: "error", signal: AbortSignal.timeout(30_000) });
+    } catch { throw new Error("Microsoft Graph request failed"); }
+    if (!response.ok) throw new Error(`Microsoft Graph request failed (${response.status})`);
+    const length = response.headers.get("content-length");
+    if (length && /^\d+$/.test(length) && Number(length) > MAX_RAW_MESSAGE_BYTES) throw new Error("Microsoft Graph MIME is too large");
+    if (!response.body) throw new Error("Microsoft Graph MIME is unavailable");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_RAW_MESSAGE_BYTES) { await reader.cancel(); throw new Error("Microsoft Graph MIME is too large"); }
+        chunks.push(value);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "Microsoft Graph MIME is too large") throw error;
+      throw new Error("Microsoft Graph MIME read failed");
+    } finally { reader.releaseLock(); }
+    if (!total) throw new Error("Microsoft Graph MIME is unavailable");
+    return Buffer.concat(chunks, total);
+  }
+
   isReplyInThread(message: ParsedMessage): boolean { return Boolean(message.headers.inReplyTo || message.headers.references); }
 
   private async patchMessage(id: string, patch: object): Promise<void> {
@@ -261,6 +293,11 @@ export class OutlookProvider implements EmailProvider {
       messages: messages.map((message) => ({ id: message.id, parentFolderId: message.parentFolderId!, isRead: message.isRead!, categories: message.categories ?? [] })),
     };
   }
+  async restoreArchive(threadId: string, snapshot: Prisma.JsonValue): Promise<void> {
+    // undoAction validates provider/thread identity and restores only original Inbox state.
+    await this.undoAction({ type: "ARCHIVE", undoSnapshot: snapshot } as ExecutedAction, threadId);
+  }
+
   async undoAction(action: ExecutedAction, threadId: string): Promise<void> {
     const snapshot = readSnapshot(action.undoSnapshot, threadId);
     const current = await this.captureUndoSnapshot(threadId);
@@ -284,7 +321,9 @@ export class OutlookProvider implements EmailProvider {
         if (!action.label) throw new Error("Cannot undo Outlook label action without a label");
         for (const original of snapshot.messages) {
           const now = current.messages.find((item) => item.id === original.id)!;
-          if (!original.categories.includes(action.label) && now.categories.includes(action.label)) {
+          if (action.labelOperation === "REMOVE" && original.categories.includes(action.label) && !now.categories.includes(action.label)) {
+            await this.patchMessage(original.id, { categories: [...now.categories, action.label] });
+          } else if (action.labelOperation !== "REMOVE" && !original.categories.includes(action.label) && now.categories.includes(action.label)) {
             await this.patchMessage(original.id, { categories: now.categories.filter((category) => category !== action.label) });
           }
         }

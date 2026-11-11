@@ -71,6 +71,9 @@ test("operator recovery cancels unstarted work and preserves started outcomes fo
     await prisma.threadExecutionLock.create({ data: { emailAccountId: "account", threadId: "delayed", ownerClaimToken: "delayed-claim" } });
     await expect(recoverAbandonedImmediateExecution({ ...base, threadId: "delayed" })).rejects.toThrow("Delayed worker locks");
     expect(await prisma.threadExecutionLock.count({ where: { threadId: "delayed" } })).toBe(1);
+    await prisma.threadExecutionLock.create({ data: { emailAccountId: "account", threadId: "cleanup", ownerCleanupJobId: "cleanup-job" } });
+    await expect(recoverAbandonedImmediateExecution({ ...base, threadId: "cleanup" })).rejects.toThrow("Cleanup locks");
+    expect(await prisma.threadExecutionLock.count({ where: { threadId: "cleanup" } })).toBe(1);
     await prisma.threadExecutionLock.create({ data: { emailAccountId: "account", threadId: "before-insert" } });
     const empty = await recoverAbandonedImmediateExecution({ ...base, threadId: "before-insert" });
     expect(empty.affectedExecutions).toBe(0);

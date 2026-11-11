@@ -1,4 +1,4 @@
-import type { ExecutedAction } from "@prisma/client";
+import type { ExecutedAction, Prisma } from "@prisma/client";
 import type { gmail_v1 } from "@googleapis/gmail";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
@@ -10,6 +10,7 @@ const parseGmail = createRequire(import.meta.url)("gmail-api-parse-message") as 
   headers?: Record<string, string>; textPlain?: string; textHtml?: string;
 };
 
+const MAX_RAW_MESSAGE_BYTES = 25_000_000;
 type DraftInput = Parameters<EmailProvider["createDraft"]>[0];
 type GmailSnapshot = { provider: "google"; threadId: string; messages: { id: string; labelIds: string[] }[] };
 
@@ -119,6 +120,16 @@ export class GmailProvider implements EmailProvider {
     return parseMessage(data);
   }
 
+  async getRawMessage(messageId: string): Promise<Uint8Array> {
+    if (!messageId.trim()) throw new Error("Message ID is required");
+    const maxEncodedBytes = Math.ceil(MAX_RAW_MESSAGE_BYTES / 3) * 4;
+    const { data } = await safeCall(() => this.gmail.users.messages.get({ userId: "me", id: messageId, format: "raw" }, { maxContentLength: maxEncodedBytes + 65_536 }));
+    if (data.id !== messageId || !data.raw || data.raw.length > maxEncodedBytes || !/^[A-Za-z0-9_-]+={0,2}$/.test(data.raw)) throw new Error("Gmail original MIME is unavailable or too large");
+    const raw = Buffer.from(data.raw, "base64url");
+    if (!raw.length || raw.length > MAX_RAW_MESSAGE_BYTES || raw.toString("base64url") !== data.raw.replace(/=+$/, "")) throw new Error("Gmail original MIME is invalid or too large");
+    return raw;
+  }
+
   isReplyInThread(message: ParsedMessage): boolean { return Boolean(message.headers.inReplyTo || message.headers.references); }
 
   private async modify(threadId: string, addLabelIds: string[], removeLabelIds: string[]): Promise<void> {
@@ -132,10 +143,8 @@ export class GmailProvider implements EmailProvider {
   private async buildForwardMime(input: ForwardInput): Promise<string> {
     const message = await this.getMessage(input.messageId);
     if (message.threadId !== input.threadId) throw new Error("Forward message is not in thread");
-    const { data } = await safeCall(() => this.gmail.users.messages.get({ userId: "me", id: input.messageId, format: "raw" }));
-    if (data.id !== input.messageId || data.threadId !== input.threadId || !data.raw || !/^[A-Za-z0-9_-]+={0,2}$/.test(data.raw)) throw new Error("Gmail original MIME is unavailable");
-    const original = Buffer.from(data.raw, "base64url");
-    if (!original.length || original.toString("base64url") !== data.raw.replace(/=+$/, "") || original.length > 20_000_000) throw new Error("Gmail original MIME is invalid or too large to forward");
+    const original = Buffer.from(await this.getRawMessage(input.messageId));
+    if (original.length > 20_000_000) throw new Error("Gmail original MIME is too large to forward");
     const forward = formatForwardMessage({ ...message, hasAttachments: false, attachmentNames: [] }, input.comment);
     const boundary = `open-inbox-zero-${randomUUID()}`;
     const lines = (body: Buffer) => body.toString("base64").replace(/.{1,76}/g, "$&\r\n");
@@ -198,6 +207,11 @@ export class GmailProvider implements EmailProvider {
     return { provider: "google", threadId, messages: data.messages.map((message) => ({ id: required(message.id, "message id"), labelIds: message.labelIds ?? [] })) };
   }
 
+  async restoreArchive(threadId: string, snapshot: Prisma.JsonValue): Promise<void> {
+    // undoAction validates provider/thread identity and restores only original Inbox state.
+    await this.undoAction({ type: "ARCHIVE", undoSnapshot: snapshot } as ExecutedAction, threadId);
+  }
+
   async undoAction(action: ExecutedAction, threadId: string): Promise<void> {
     const snapshot = readSnapshot(action.undoSnapshot, threadId);
     const current = await this.captureUndoSnapshot(threadId);
@@ -209,7 +223,9 @@ export class GmailProvider implements EmailProvider {
       case "MARK_SPAM": add = "INBOX"; remove = "SPAM"; break;
       case "LABEL": {
         if (!action.label) throw new Error("Cannot undo Gmail label action without a label");
-        remove = required(await this.labelId(action.label, false), "label id");
+        const labelId = required(await this.labelId(action.label, false), "label id");
+        if (action.labelOperation === "REMOVE") add = labelId;
+        else remove = labelId;
         break;
       }
       case "MARK_SEEN": add = "UNREAD"; break;
