@@ -2,6 +2,8 @@
 
 Last updated: 2026-11-11
 
+For the detailed documentation index, see [docs/README.md](docs/README.md).
+
 The application is **not finished**. This file records the current implementation and known gaps; `ARCHITECTURE.md`, `CODEX_BUILD_PLAN.md`, and `ANTIGRAVITY_AUDIT_CHECKLIST.md` remain the specification and have not been marked as completed audits.
 
 ## Implemented so far
