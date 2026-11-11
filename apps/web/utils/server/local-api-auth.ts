@@ -12,7 +12,11 @@ export function authorizeLocalApi(request: Request, env: NodeJS.ProcessEnv = pro
   if (left.length !== right.length || !timingSafeEqual(left, right)) return false;
   const origin = request.headers.get('origin');
   if (origin) {
-    try { if (new URL(origin).origin !== new URL(request.url).origin) return false; }
+    try {
+      const incoming = new URL(origin);
+      const host = request.headers.get('host') ?? new URL(request.url).host;
+      if (!/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host) || incoming.protocol !== 'http:' || incoming.host.toLowerCase() !== host.toLowerCase()) return false;
+    }
     catch { return false; }
   }
   return true;
