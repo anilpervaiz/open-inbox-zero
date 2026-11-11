@@ -132,6 +132,7 @@ model AuthAccount {
   providerId            String
   userId                String
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mailbox               EmailAccount?
   accessToken           String?
   refreshToken          String?
   idToken               String?
@@ -176,6 +177,8 @@ model EmailAccount {
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   email                String               @unique
   provider             String               // "google" | "microsoft" | "emulator"
+  authAccountId        String?              @unique
+  authAccount          AuthAccount?        @relation(fields: [authAccountId], references: [id], onDelete: Restrict)
   encryptedAccessToken String?
   encryptedRefreshToken String?
   accessTokenExpiresAt  DateTime?

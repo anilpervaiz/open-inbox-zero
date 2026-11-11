@@ -11,8 +11,8 @@ export function authConfiguration(env: Record<string, string | undefined> = proc
   try { base = new URL(rawUrl); } catch { return null; }
   if (base.username || base.password || base.search || base.hash || (base.pathname !== '/' && base.pathname !== '')) return null;
   if (base.protocol !== 'https:' && !(base.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(base.hostname))) return null;
-  const google = env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET, accessType: 'offline' as const } : undefined;
-  const microsoft = env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET ? { clientId: env.MICROSOFT_CLIENT_ID, clientSecret: env.MICROSOFT_CLIENT_SECRET, tenantId: 'common' } : undefined;
+  const google = env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET, accessType: 'offline' as const, scope: ['https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'], prompt: 'consent' as const } : undefined;
+  const microsoft = env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET ? { clientId: env.MICROSOFT_CLIENT_ID, clientSecret: env.MICROSOFT_CLIENT_SECRET, tenantId: 'common', scope: ['User.Read', 'Mail.ReadWrite', 'Mail.Send', 'offline_access'] } : undefined;
   if (!google && !microsoft) return null;
   return { secret, baseUrl: base.origin, google, microsoft };
 }
@@ -24,7 +24,7 @@ export function createSessionAuth(configuration: NonNullable<ReturnType<typeof a
     trustedOrigins: [configuration.baseUrl],
     database: prismaAdapter(db, { provider: 'postgresql' }),
     session: { modelName: 'authSession' },
-    account: { modelName: 'authAccount', encryptOAuthTokens: true, accountLinking: { disableImplicitLinking: true } },
+    account: { modelName: 'authAccount', encryptOAuthTokens: true, accountLinking: { disableImplicitLinking: true, allowDifferentEmails: true } },
     verification: { modelName: 'authVerification' },
     socialProviders: { ...(configuration.google ? { google: configuration.google } : {}), ...(configuration.microsoft ? { microsoft: configuration.microsoft } : {}) },
     advanced: { useSecureCookies: configuration.baseUrl.startsWith('https://') },

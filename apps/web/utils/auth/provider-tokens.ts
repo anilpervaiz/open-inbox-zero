@@ -10,7 +10,7 @@ const tokenResponse = z.object({
 });
 
 /** Obtain a usable provider token, serializing refreshes in PostgreSQL across workers. */
-export async function getProviderAccessToken(input: { prisma: PrismaClient; emailAccountId: string; requestFetch?: typeof fetch; env?: Record<string, string | undefined>; now?: () => number }): Promise<string> {
+export async function getProviderAccessToken(input: { prisma: PrismaClient; emailAccountId: string; requestFetch?: typeof fetch; env?: Record<string, string | undefined>; now?: () => number; getOAuthToken?: (accountId: string, userId: string) => Promise<{ accessToken: string; accessTokenExpiresAt?: Date }> }): Promise<string> {
   const { prisma, emailAccountId, requestFetch = fetch, env = process.env, now = Date.now } = input;
   if (!emailAccountId) throw new Error('Account required');
   return prisma.$transaction(async tx => {
@@ -18,7 +18,25 @@ export async function getProviderAccessToken(input: { prisma: PrismaClient; emai
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`provider-token:${emailAccountId}`}))::text`;
     const account = await tx.emailAccount.findUnique({ where: { id: emailAccountId } });
     if (!account || !['google', 'microsoft'].includes(account.provider)) throw new Error('Provider account unavailable');
+    if (account.authAccountId) {
+      const linked = await tx.authAccount.findFirst({ where: { id: account.authAccountId, userId: account.userId, providerId: account.provider }, select: { id: true } });
+      if (!linked) throw new Error('Provider authorization is not linked to this user');
+    }
     if (account.encryptedAccessToken && account.accessTokenExpiresAt && account.accessTokenExpiresAt.getTime() > now() + 60_000) return decryptToken(account.encryptedAccessToken);
+    if (account.authAccountId) {
+      try {
+        const getToken = input.getOAuthToken ?? (async (accountId: string, userId: string) => {
+          const { getSessionAuth } = await import('./session-auth');
+          const auth = getSessionAuth();
+          if (!auth) throw new Error('Sign-in is not configured');
+          return auth.api.getAccessToken({ body: { accountId, userId } });
+        });
+        const result = await getToken(account.authAccountId, account.userId);
+        if (!result.accessToken || result.accessToken.length > 16384 || (result.accessTokenExpiresAt && !Number.isFinite(result.accessTokenExpiresAt.getTime()))) throw new Error('Invalid provider token');
+        await tx.emailAccount.update({ where: { id: account.id }, data: { encryptedAccessToken: encryptToken(result.accessToken), accessTokenExpiresAt: result.accessTokenExpiresAt ?? null } });
+        return result.accessToken;
+      } catch { throw new Error('Provider token refresh failed'); }
+    }
     if (!account.encryptedRefreshToken) throw new Error('Provider authorization must be renewed');
     const isGoogle = account.provider === 'google';
     const clientId = isGoogle ? env.GOOGLE_CLIENT_ID : env.MICROSOFT_CLIENT_ID;
