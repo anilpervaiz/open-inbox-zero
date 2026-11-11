@@ -61,8 +61,9 @@ export async function findMatchingRules(input: { prisma: PrismaClient; provider:
     const staticSatisfied = !details.configuredFields.length || details.matches;
     const groupSatisfied = !rule.group || groupMatches;
     const combined = rule.conditionalOperator === 'AND' ? staticSatisfied && groupSatisfied : true;
-    if (groupMatches && combined) return makeMatch(rule, 'GROUP', `Sender group: ${rule.group!.name}`);
-    if (details.matches && combined) {
+    const deterministicOnly = !rule.instructions?.trim() || rule.conditionalOperator === 'OR';
+    if (groupMatches && combined && deterministicOnly) return makeMatch(rule, 'GROUP', `Sender group: ${rule.group!.name}`);
+    if (details.matches && combined && deterministicOnly) {
       return makeMatch(rule, 'STATIC', `Matched ${details.matchedFields.join(', ')}`, { matchedFields: details.matchedFields });
     }
   }

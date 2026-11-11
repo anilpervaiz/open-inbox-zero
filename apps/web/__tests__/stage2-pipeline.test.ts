@@ -111,7 +111,7 @@ describe("Stage 2 full rule pipeline against PostgreSQL and emulator", () => {
     expect(choose).not.toHaveBeenCalled();
   });
 
-  it("learns after two applied AI classifications, bypasses AI on the third, and unlearns on correction", async () => {
+  it("learns after two applied AI classifications and retains AI checking for AND instructions", async () => {
     vi.stubEnv("LLM_PROVIDER", "emulator");
     const owner = await account();
     const receiptRule = await rule(owner, { name: "Invoices", instructions: "Handle invoice and billing receipts", actions: [{ type: "LABEL", label: "Invoices" }] });
@@ -120,10 +120,10 @@ describe("Stage 2 full rule pipeline against PostgreSQL and emulator", () => {
     for (let index = 0; index < 3; index++) {
       const entry = await message(owner, { from: "invoices@acme.example", subject: "Invoice received", body: "Invoice billing receipt", offset: index });
       const result = await runRules({ prisma, emailAccountId: owner.id, provider: entry.provider, message: entry.parsed });
-      expect(result.match?.metadata.stage).toBe(index < 2 ? "AI" : "GROUP");
+      expect(result.match?.metadata.stage).toBe("AI");
       expect(result.execution?.status).toBe("APPLIED");
     }
-    expect(choose).toHaveBeenCalledTimes(2);
+    expect(choose).toHaveBeenCalledTimes(3);
     const learned = await prisma.groupItem.findFirst({ where: { value: "invoices@acme.example", source: "AI_LEARNED", group: { emailAccountId: owner.id } } });
     expect(learned).not.toBeNull();
     await recordLabelRemovalLearning(prisma, { emailAccountId: owner.id, fromEmail: "invoices@acme.example", subject: "Invoice", wrongRuleId: receiptRule.id, correctRuleId: otherRule.id });
@@ -152,16 +152,56 @@ describe("Stage 2 full rule pipeline against PostgreSQL and emulator", () => {
     expect(await prisma.groupItem.count({ where: { value: "attacker@evil.example", group: { emailAccountId: owner.id } } })).toBe(0);
   });
 
-  it("resolves a static sender match without AI even when the rule also has instructions", async () => {
+  it("routes matching static AND instructions through AI and excludes mismatched static conditions", async () => {
     vi.stubEnv("LLM_PROVIDER", "emulator");
-    const owner = await account({ cold: true });
-    await rule(owner, { name: "VIP Clients", from: "*@vip.example", instructions: "Priority clients", actions: [{ type: "LABEL", label: "VIP" }] });
-    const entry = await message(owner, { from: "vip@vip.example", subject: "Quick question", body: "Book a demo of our prospecting tool" });
+    const owner = await account();
+    await rule(owner, { name: "Priority invoices", from: "*@vip.example", instructions: "Invoice billing receipts", actions: [{ type: "LABEL", label: "Priority" }] });
     const choose = vi.spyOn(ai, "aiChooseRule");
+    const entry = await message(owner, { from: "billing@vip.example", subject: "Invoice receipt", body: "Invoice billing receipt" });
     const result = await runRules({ prisma, emailAccountId: owner.id, provider: entry.provider, message: entry.parsed });
-    expect(result.match?.metadata.stage).toBe("STATIC");
-    expect(choose).not.toHaveBeenCalled();
-    expect((await entry.provider.getMessage(entry.parsed.id)).labelIds).toContain("VIP");
+    expect(result.match?.metadata.stage).toBe("AI");
+    expect(choose).toHaveBeenCalledTimes(1);
+    expect((await entry.provider.getMessage(entry.parsed.id)).labelIds).toContain("Priority");
+    const other = await message(owner, { from: "billing@other.example", subject: "Invoice receipt", body: "Invoice billing receipt" });
+    const unmatched = await runRules({ prisma, emailAccountId: owner.id, provider: other.provider, message: other.parsed });
+    expect(unmatched.match).toBeNull();
+  });
+
+  it("routes matching group AND instructions through AI", async () => {
+    vi.stubEnv("LLM_PROVIDER", "emulator");
+    const owner = await account();
+    const group = await prisma.group.create({ data: { emailAccountId: owner.id, name: "Billing senders", items: { create: { type: "FROM", value: "billing@vendor.example", source: "USER" } } } });
+    await rule(owner, { name: "Billing invoices", groupId: group.id, instructions: "Invoice billing receipt", actions: [{ type: "LABEL", label: "Billing" }] });
+    const choose = vi.spyOn(ai, "aiChooseRule");
+    const entry = await message(owner, { from: "billing@vendor.example", subject: "Invoice receipt" });
+    const result = await runRules({ prisma, emailAccountId: owner.id, provider: entry.provider, message: entry.parsed });
+    expect(result.match?.metadata.stage).toBe("AI");
+    expect(choose).toHaveBeenCalledTimes(1);
+  });
+
+  it("undoes the old rule and applies an audited user-selected replacement", async () => {
+    vi.stubEnv("LLM_PROVIDER", "emulator");
+    vi.stubEnv("LOCAL_EMULATOR_MODE", "1");
+    vi.stubEnv("LOCAL_EMULATOR_TOKEN", "a".repeat(64));
+    const owner = await account();
+    const wrong = await rule(owner, { name: "Wrong", from: "sender@outside.example", actions: [{ type: "LABEL", label: "Old" }] });
+    const correct = await rule(owner, { name: "Correct", instructions: "Handle support", actions: [{ type: "LABEL", label: "New" }] });
+    const entry = await message(owner, { from: "sender@outside.example", subject: "Help" });
+    const first = await runRules({ prisma, emailAccountId: owner.id, provider: entry.provider, message: entry.parsed });
+    expect((await entry.provider.getMessage(entry.parsed.id)).labelIds).toContain("Old");
+    vi.doMock("../utils/server/prisma", () => ({ prisma }));
+    try {
+      const { POST } = await import("../app/api/workspace/route");
+      const response = await POST(new Request("http://127.0.0.1:3000/api/workspace", { method: "POST", headers: { authorization: `Bearer ${"a".repeat(64)}`, "content-type": "application/json", origin: "http://127.0.0.1:3000" }, body: JSON.stringify({ operation: "change-rule", accountId: owner.id, executionId: first.execution!.id, correctRuleId: correct.id }) }));
+      expect(response.status).toBe(200);
+    } finally { vi.doUnmock("../utils/server/prisma"); }
+    const labels = (await entry.provider.getMessage(entry.parsed.id)).labelIds;
+    expect(labels).not.toContain("Old");
+    expect(labels).toContain("New");
+    expect((await prisma.executedRule.findUniqueOrThrow({ where: { id: first.execution!.id } })).status).toBe("REJECTED");
+    const replacement = await prisma.executedRule.findFirstOrThrow({ where: { emailAccountId: owner.id, ruleId: correct.id, sourceMessageId: entry.parsed.id } });
+    expect(replacement.status).toBe("APPLIED");
+    expect(await prisma.classificationFeedback.count({ where: { emailAccountId: owner.id, wrongRuleId: wrong.id, correctRuleId: correct.id } })).toBe(1);
   });
 
   it("blocks static From-only automatic outbound actions without verified history", async () => {

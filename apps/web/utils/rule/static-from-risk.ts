@@ -6,7 +6,7 @@ const outbound: ActionType[] = ["REPLY", "SEND_EMAIL", "FORWARD"];
 /** Sender-controlled headers and reply headers do not authenticate a sender. */
 export function getBlockedLowTrustStaticFromActionTypes(input: {
   rule: Pick<Rule, "from"> | null;
-  stage: "STATIC" | "GROUP" | "COLD" | "AI" | "SYSTEM";
+  stage: "STATIC" | "GROUP" | "COLD" | "AI" | "SYSTEM" | "MANUAL";
   hasVerifiedSenderReplyHistory: boolean;
   matchedFields?: ("from" | "to" | "subject" | "body")[];
 }): ActionType[] {

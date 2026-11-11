@@ -1,12 +1,15 @@
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../utils/server/prisma';
 import { authorizeLocalApi } from '../../../utils/server/local-api-auth';
 import { EmulatedMailProvider } from '../../../utils/mail-provider/emulated-provider';
 import { runRules } from '../../../utils/ai/choose-rule/run-rules';
-import { undoExecutedRule } from '../../../utils/ai/choose-rule/execute';
+import { executeAct, undoExecutedRule } from '../../../utils/ai/choose-rule/execute';
 import { refreshSenderAnalytics, unsubscribeSender } from '../../../utils/unsubscribe';
 import { createCleanupJob, runCleanupJob } from '../../../utils/cleanup/cleanup-jobs';
 import { recordLabelRemovalLearning } from '../../../utils/rule/ai-sender-pattern-learning';
+import { getActionItemsWithAiArgs } from '../../../utils/ai/choose-rule/choose-args';
+import { checkSenderReplyHistory } from '../../../utils/ai/choose-rule/match-rules';
 import { senderAddress } from '../../../utils/rule/static-from-risk';
 
 const id = z.string().min(1).max(256);
@@ -90,11 +93,17 @@ export async function POST(request: Request): Promise<Response> {
       case 'change-rule': {
         const execution = await prisma.executedRule.findFirst({ where: { id: data.executionId, emailAccountId: account.id } });
         if (!execution?.ruleId || execution.ruleId === data.correctRuleId || execution.status === 'REJECTED') throw new Error('Rule correction unavailable');
-        const message = await provider.getMessage(execution.messageId);
+        const correct = await prisma.rule.findFirst({ where: { id: data.correctRuleId, emailAccountId: account.id }, include: { actions: true } });
+        if (!correct) throw new Error('Replacement rule not found');
+        const message = await provider.getMessage(execution.sourceMessageId ?? execution.messageId);
         if (message.threadId !== execution.threadId) throw new Error('Thread mismatch');
         const sender = senderAddress(message.headers.from); if (!sender) throw new Error('Invalid sender');
-        await recordLabelRemovalLearning(prisma, { emailAccountId: account.id, fromEmail: sender, subject: message.headers.subject, wrongRuleId: execution.ruleId, correctRuleId: data.correctRuleId });
+        const actions = await getActionItemsWithAiArgs({ prisma, emailAccountId: account.id, message, actions: correct.actions, account });
+        const history = await checkSenderReplyHistory(prisma, account, sender, message.internalDate);
         await undoExecutedRule({ prisma, provider, emailAccountId: account.id, executedRuleId: execution.id });
+        await recordLabelRemovalLearning(prisma, { emailAccountId: account.id, fromEmail: sender, subject: message.headers.subject, wrongRuleId: execution.ruleId, correctRuleId: data.correctRuleId });
+        const replacement = await executeAct({ prisma, provider, emailAccountId: account.id, message, rule: correct, actions, matchReasons: [{ type: 'MANUAL', detail: 'User-selected replacement rule' }], selectionMetadata: { stage: 'MANUAL', ruleName: correct.name }, hasVerifiedSenderReplyHistory: history, correctionId: `correction:${randomUUID()}` });
+        if (replacement.status === 'ERROR' || replacement.status === 'SKIPPED') throw new Error('Replacement rule could not be applied');
         break;
       }
       case 'run': { const message = await provider.getMessage(data.messageId); await runRules({ prisma, provider, emailAccountId: account.id, message }); break; }

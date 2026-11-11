@@ -96,7 +96,7 @@ export async function processPendingSenderLearning(prisma: PrismaClient): Promis
   const job = await prisma.delayedAction.findFirst({ where: { learningPending: true, OR: [{ learningNextAttemptAt: null }, { learningNextAttemptAt: { lte: new Date() } }] }, include: { executedAction: { include: { executedRule: true } } }, orderBy: { createdAt: "asc" } });
   if (!job) return false;
   const execution = job.executedAction.executedRule;
-  const message = await prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId: execution.emailAccountId, messageId: execution.messageId } } });
+  const message = await prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId: execution.emailAccountId, messageId: execution.sourceMessageId ?? execution.messageId } } });
   if (!message || !execution.ruleId || execution.status !== "APPLIED") {
     await prisma.delayedAction.updateMany({ where: { id: job.id, learningPending: true }, data: { learningPending: false, learningNextAttemptAt: null } });
     return true;

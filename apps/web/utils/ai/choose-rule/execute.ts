@@ -5,7 +5,7 @@ import type { EmailProvider, ParsedMessage } from "../../mail-provider/types";
 import { executeWebhook } from "../../secure-webhook";
 import { getBlockedLowTrustStaticFromActionTypes, senderAddress, shouldSkipAutomatedArchiveForSender } from "../../rule/static-from-risk";
 
-type MatchStage = "STATIC" | "GROUP" | "COLD" | "AI" | "SYSTEM";
+type MatchStage = "STATIC" | "GROUP" | "COLD" | "AI" | "SYSTEM" | "MANUAL";
 export type MatchReason = { type: MatchStage; detail: string; matchedFields?: ("from" | "to" | "subject" | "body")[] };
 export type RuleSelectionMetadata = { stage: MatchStage; ruleName: string };
 export type ExecuteActInput = {
@@ -19,6 +19,7 @@ export type ExecuteActInput = {
   selectionMetadata: RuleSelectionMetadata;
   hasVerifiedSenderReplyHistory: boolean;
   protectedSenders?: string[];
+  correctionId?: string;
 };
 
 type DraftArgs = { threadId: string; to: string; subject: string; body: string; cc?: string; inReplyTo?: string };
@@ -39,7 +40,7 @@ function skipReason(source: Action, effectiveType: ActionType, input: { automate
   if (!input.automate) return "Rule requires manual approval";
   if (["ARCHIVE", "MARK_SPAM"].includes(effectiveType) && input.protectArchive) return "Protected sender";
   if (source.autoSend && input.blocked.includes(source.type)) return "Unverified static sender";
-  if (source.autoSend && ["AI", "GROUP", "SYSTEM"].includes(input.stage) && !input.verifiedHistory && ["REPLY", "SEND_EMAIL", "FORWARD"].includes(source.type)) return "AI, group or system-selected outbound requires verified sender history";
+  if (source.autoSend && ["AI", "GROUP", "SYSTEM", "MANUAL"].includes(input.stage) && !input.verifiedHistory && ["REPLY", "SEND_EMAIL", "FORWARD"].includes(source.type)) return "Selected outbound requires verified sender history";
   return undefined;
 }
 
@@ -117,16 +118,18 @@ async function executeActUnlocked(input: ExecuteActInput) {
   const vipRules = await prisma.rule.findMany({ where: { emailAccountId, name: { contains: "vip", mode: "insensitive" }, from: { not: null } }, select: { from: true } });
   const protectedSenders = [...(input.protectedSenders ?? []), ...vipRules.flatMap((item) => item.from ? [item.from] : []), ...vipGroups.flatMap((group) => group.items.filter((item) => item.type === "FROM" && !item.exclude).map((item) => item.value))];
   const protectArchive = shouldSkipAutomatedArchiveForSender({ sender, accountEmail: account.email, protectedSenders });
-  const safety = { automate: rule?.automate ?? true, protectArchive, blocked, stage: selectionMetadata.stage, verifiedHistory };
-  const existing = await prisma.executedRule.findUnique({ where: { emailAccountId_threadId_messageId: { emailAccountId, threadId: message.threadId, messageId: message.id } }, include: { actionItems: true } });
+  const safety = { automate: selectionMetadata.stage === "MANUAL" || (rule?.automate ?? true), protectArchive, blocked, stage: selectionMetadata.stage, verifiedHistory };
+  if (input.correctionId && !/^correction:[0-9a-f-]{36}$/i.test(input.correctionId)) throw new Error("Invalid correction identifier");
+  const auditMessageId = input.correctionId ?? message.id;
+  const existing = await prisma.executedRule.findUnique({ where: { emailAccountId_threadId_messageId: { emailAccountId, threadId: message.threadId, messageId: auditMessageId } }, include: { actionItems: true } });
   if (existing) return existing;
   const actionIds = planned.map((_, index) => `${String(index).padStart(8, "0")}-${randomUUID()}`);
   const fingerprints = await Promise.all(configured.map((action) => action.delayMinutes ? fingerprint(prisma, action) : Promise.resolve("")));
   let execution;
   try {
     execution = await prisma.executedRule.create({ data: {
-      emailAccountId, ruleId: rule?.id, threadId: message.threadId, messageId: message.id,
-      status: "PENDING", automated: rule?.automate ?? true,
+      emailAccountId, ruleId: rule?.id, threadId: message.threadId, messageId: auditMessageId, sourceMessageId: input.correctionId ? message.id : undefined,
+      status: "PENDING", automated: selectionMetadata.stage !== "MANUAL" && (rule?.automate ?? true),
       matchReasons: matchReasons as Prisma.InputJsonValue, selectionMetadata: selectionMetadata as Prisma.InputJsonValue,
       actionItems: { create: planned.map((action, index) => ({
         id: actionIds[index], type: action.type, label: action.label, subject: action.subject, content: action.content, to: action.to, cc: action.cc, bcc: action.bcc, url: action.url,
@@ -136,7 +139,7 @@ async function executeActUnlocked(input: ExecuteActInput) {
       })) },
     }, include: { actionItems: true } });
   } catch (error) {
-    const duplicate = await prisma.executedRule.findUnique({ where: { emailAccountId_threadId_messageId: { emailAccountId, threadId: message.threadId, messageId: message.id } }, include: { actionItems: true } });
+    const duplicate = await prisma.executedRule.findUnique({ where: { emailAccountId_threadId_messageId: { emailAccountId, threadId: message.threadId, messageId: auditMessageId } }, include: { actionItems: true } });
     if (duplicate) return duplicate;
     throw error;
   }
@@ -256,9 +259,9 @@ export async function executeScheduledAction(input: { prisma: PrismaClient; prov
     if (!source || !execution.rule?.automate || await fingerprint(prisma, source) !== job.sourceFingerprint) {
       return skipScheduled("Rule changed or no longer permits automation");
     }
-    const message = await provider.getMessage(execution.messageId);
+    const message = await provider.getMessage(execution.sourceMessageId ?? execution.messageId);
     const sender = senderAddress(message.headers.from);
-    const stored = await prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId, messageId: execution.messageId } } });
+    const stored = await prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId, messageId: execution.sourceMessageId ?? execution.messageId } } });
     if (!sender || !stored || stored.threadId !== execution.threadId || message.threadId !== execution.threadId || senderAddress(stored.fromEmail) !== sender) throw new Error("Scheduled message does not belong to account and thread");
     const metadata = execution.selectionMetadata;
     if (!metadata || typeof metadata !== "object" || Array.isArray(metadata) || typeof metadata.stage !== "string" || !["STATIC", "GROUP", "COLD", "AI", "SYSTEM"].includes(metadata.stage)) throw new Error("Invalid saved rule selection");
@@ -339,7 +342,7 @@ async function undoExecutedRuleUnlocked(input: UndoInput) {
     if (action.type === "TRACK_THREAD") {
       const snapshot = action.undoSnapshot;
       if (!snapshot || Array.isArray(snapshot) || typeof snapshot !== "object" || snapshot.provider !== "internal" || snapshot.threadId !== execution.threadId || !(typeof snapshot.createdTrackerId === "string" || snapshot.createdTrackerId === null)) throw new Error("Invalid tracker undo snapshot");
-      await suppressReplyRequirement({ prisma, emailAccountId, threadId: execution.threadId, messageId: execution.messageId });
+      await suppressReplyRequirement({ prisma, emailAccountId, threadId: execution.threadId, messageId: execution.sourceMessageId ?? execution.messageId });
     } else await provider.undoAction(action, execution.threadId);
     await prisma.executedAction.update({ where: { id: action.id }, data: { status: "SKIPPED", error: action.status === "FAILED" ? "Reverted after provider failure" : "Reverted" } });
   }
