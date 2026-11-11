@@ -129,6 +129,7 @@ model EmailAccount {
   provider             String               // "google" | "microsoft" | "emulator"
   encryptedAccessToken String?
   encryptedRefreshToken String?
+  accessTokenExpiresAt  DateTime?
   lastSyncedHistoryId  String?
   about                String?              // User profile context for AI drafting
   signature            String?

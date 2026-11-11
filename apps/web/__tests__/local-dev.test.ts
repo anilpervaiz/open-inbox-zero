@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { expect, test, vi } from "vitest";
 import { refreshSenderAnalytics } from "../utils/unsubscribe";
+import { getProviderAccessToken } from "../utils/auth/provider-tokens";
+import { encryptToken, decryptToken } from "../utils/encryption";
 import { seedDemo } from "../scripts/local-dev";
 import { authenticateUserApiKey, createUserApiKey, revokeUserApiKey } from "../utils/server/api-keys";
 
@@ -94,6 +96,17 @@ test("seeds a real PostgreSQL database once without resetting user changes", asy
     expect((await POST(new Request("http://localhost/api/mcp", { method: "POST", headers: { authorization: "Bearer bad" } }))).status).toBe(401);
     await prisma.emailMessage.deleteMany({ where: { emailAccountId: demo.id, messageId: draft.draftId } });
     vi.doUnmock("../utils/server/prisma"); vi.unstubAllEnvs();
+    vi.stubEnv("TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 11).toString("base64"));
+    const remote = await prisma.emailAccount.create({ data: { userId: demo.userId, email: "remote@example.test", provider: "microsoft", encryptedRefreshToken: encryptToken("old-refresh") } });
+    const fetchToken = vi.fn(async () => Response.json({ access_token: "new-access", refresh_token: "new-refresh", expires_in: 3600, token_type: "Bearer" }));
+    const refreshInput = { prisma, emailAccountId: remote.id, requestFetch: fetchToken as unknown as typeof fetch, env: { MICROSOFT_CLIENT_ID: "client", MICROSOFT_CLIENT_SECRET: "secret" } };
+    expect(await Promise.all([getProviderAccessToken(refreshInput), getProviderAccessToken(refreshInput)])).toEqual(["new-access", "new-access"]);
+    expect(fetchToken).toHaveBeenCalledTimes(1);
+    const refreshed = await prisma.emailAccount.findUniqueOrThrow({ where: { id: remote.id } });
+    expect(decryptToken(refreshed.encryptedRefreshToken!)).toBe("new-refresh");
+    expect(decryptToken(refreshed.encryptedAccessToken!)).toBe("new-access");
+    await prisma.emailAccount.delete({ where: { id: remote.id } });
+    vi.unstubAllEnvs();
     expect(await prisma.rule.count()).toBe(12);
     expect(await prisma.knowledge.count()).toBe(6);
     expect(await prisma.replyMemory.count()).toBe(6);
