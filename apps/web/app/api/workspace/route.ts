@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../utils/server/prisma';
+import { evaluationSummary } from '../../../utils/server/evaluation-summary';
 import { workspacePrincipal, workspaceRateLimit, type WorkspacePrincipal } from '../../../utils/server/workspace-auth';
 import { EmulatedMailProvider } from '../../../utils/mail-provider/emulated-provider';
 import { resolveMailProvider } from '../../../utils/mail-provider/provider-resolver';
@@ -70,7 +71,8 @@ export async function GET(request: Request): Promise<Response> {
       prisma.coldEmail.findMany({ where: { emailAccountId: account.id, status: { in: ['AI_LABELED_COLD', 'USER_MARKED_COLD'] } }, orderBy: { createdAt: 'desc' } }),
       prisma.knowledge.findMany({ where: { emailAccountId: account.id }, orderBy: { updatedAt: 'desc' } }),
     ]);
-    return Response.json({ accounts, account, messages, rules, groups, trackers, executions, newsletters, cold, knowledge });
+    const evaluation = await evaluationSummary();
+    return Response.json({ accounts, account, messages, rules, groups, trackers, executions, newsletters, cold, knowledge, evaluation });
   } catch { return Response.json({ error: 'Mailbox could not be loaded' }, { status: 500 }); }
 }
 export async function POST(request: Request): Promise<Response> {

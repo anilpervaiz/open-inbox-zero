@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "local:start": "tsx scripts/local-dev.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "eval": "tsx scripts/eval.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.99",

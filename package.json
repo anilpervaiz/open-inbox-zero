@@ -12,7 +12,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "local:start": "pnpm --filter @open-inbox-zero/web local:start",
-    "cli": "pnpm --filter @open-inbox-zero/web exec tsx ../../packages/cli/src/main.ts"
+    "cli": "pnpm --filter @open-inbox-zero/web exec tsx ../../packages/cli/src/main.ts",
+    "eval": "pnpm --filter @open-inbox-zero/web eval"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

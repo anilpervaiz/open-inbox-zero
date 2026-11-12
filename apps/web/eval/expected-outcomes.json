@@ -1,0 +1,542 @@
+[
+  {
+    "id": "gold-01",
+    "rule": "VIP Clients",
+    "cold": false,
+    "vip": true,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-02",
+    "rule": "VIP Clients",
+    "cold": false,
+    "vip": true,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-03",
+    "rule": "VIP Clients",
+    "cold": false,
+    "vip": true,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "awaiting_reply"
+  },
+  {
+    "id": "gold-04",
+    "rule": "VIP Clients",
+    "cold": false,
+    "vip": true,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "awaiting_reply"
+  },
+  {
+    "id": "gold-05",
+    "rule": "VIP Clients",
+    "cold": false,
+    "vip": true,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "awaiting_reply"
+  },
+  {
+    "id": "gold-06",
+    "rule": "VIP Clients",
+    "cold": false,
+    "vip": true,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "awaiting_reply"
+  },
+  {
+    "id": "gold-07",
+    "rule": "VIP Clients",
+    "cold": false,
+    "vip": true,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "needs_reply"
+  },
+  {
+    "id": "gold-08",
+    "rule": "VIP Clients",
+    "cold": false,
+    "vip": true,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "needs_reply"
+  },
+  {
+    "id": "gold-09",
+    "rule": "Billing",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-10",
+    "rule": "Billing",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-11",
+    "rule": "Billing",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-12",
+    "rule": "Billing",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-13",
+    "rule": "Billing",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-14",
+    "rule": "Billing",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-15",
+    "rule": "Billing",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-16",
+    "rule": "Billing",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-17",
+    "rule": "Newsletters",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": true,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-18",
+    "rule": "Newsletters",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": true,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-19",
+    "rule": "Newsletters",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": true,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-20",
+    "rule": "Newsletters",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": true,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-21",
+    "rule": "Newsletters",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": true,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-22",
+    "rule": "Newsletters",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": true,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-23",
+    "rule": "Newsletters",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": true,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-24",
+    "rule": "Newsletters",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": true,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-25",
+    "rule": "Cold Emails",
+    "cold": true,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-26",
+    "rule": "Cold Emails",
+    "cold": true,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-27",
+    "rule": "Cold Emails",
+    "cold": true,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-28",
+    "rule": "Cold Emails",
+    "cold": true,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-29",
+    "rule": "Cold Emails",
+    "cold": true,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-30",
+    "rule": "Cold Emails",
+    "cold": true,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-31",
+    "rule": "Cold Emails",
+    "cold": true,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-32",
+    "rule": "Cold Emails",
+    "cold": true,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-33",
+    "rule": "Calendar",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-34",
+    "rule": "Calendar",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-35",
+    "rule": "Calendar",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-36",
+    "rule": "Calendar",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-37",
+    "rule": "Calendar",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-38",
+    "rule": "Calendar",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-39",
+    "rule": "Calendar",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-40",
+    "rule": "Calendar",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-41",
+    "rule": "Internal team",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-42",
+    "rule": "Internal team",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-43",
+    "rule": "Internal team",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "awaiting_reply"
+  },
+  {
+    "id": "gold-44",
+    "rule": "Internal team",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "awaiting_reply"
+  },
+  {
+    "id": "gold-45",
+    "rule": "Internal team",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "awaiting_reply"
+  },
+  {
+    "id": "gold-46",
+    "rule": "Internal team",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "awaiting_reply"
+  },
+  {
+    "id": "gold-47",
+    "rule": "Internal team",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "needs_reply"
+  },
+  {
+    "id": "gold-48",
+    "rule": "Internal team",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": false,
+    "replyState": "needs_reply"
+  },
+  {
+    "id": "gold-49",
+    "rule": "Executive auto-send",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-50",
+    "rule": "Executive auto-send",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-51",
+    "rule": "Executive auto-send",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-52",
+    "rule": "Executive auto-send",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-53",
+    "rule": "Executive auto-send",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-54",
+    "rule": "Executive auto-send",
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-55",
+    "rule": null,
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-56",
+    "rule": null,
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-57",
+    "rule": null,
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-58",
+    "rule": null,
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-59",
+    "rule": null,
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  },
+  {
+    "id": "gold-60",
+    "rule": null,
+    "cold": false,
+    "vip": false,
+    "unsafeUnsubscribe": false,
+    "adversarial": true,
+    "replyState": "none"
+  }
+]
