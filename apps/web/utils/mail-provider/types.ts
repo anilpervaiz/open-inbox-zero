@@ -46,6 +46,7 @@ export interface EmailProvider {
   removeLabel(threadId: string, labelName: string): Promise<void>;
   markRead(threadId: string, read: boolean): Promise<void>;
   createDraft(input: { threadId?: string; to: string; cc?: string; subject: string; body: string; inReplyTo?: string }): Promise<{ draftId: string }>;
+  updateDraft(input: { draftId: string; threadId: string; to: string; cc?: string; subject: string; body: string; inReplyTo?: string }): Promise<{ draftId: string }>;
   sendEmail(input: { threadId?: string; to: string; cc?: string; subject: string; body: string; inReplyTo?: string }): Promise<{ messageId: string }>;
   captureUndoSnapshot(threadId: string): Promise<Prisma.InputJsonObject>;
   restoreArchive(threadId: string, snapshot: Prisma.JsonValue): Promise<void>;

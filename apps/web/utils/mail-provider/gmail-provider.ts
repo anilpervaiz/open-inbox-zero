@@ -195,6 +195,14 @@ export class GmailProvider implements EmailProvider {
     return { draftId: required(data.id, "draft id") };
   }
 
+  async updateDraft(input: DraftInput & { draftId: string; threadId: string }): Promise<{ draftId: string }> {
+    const raw = rawMessage(input);
+    const existing = await safeCall(() => this.gmail.users.drafts.get({ userId: "me", id: input.draftId, format: "minimal" }));
+    if (existing.data.id !== input.draftId || existing.data.message?.threadId !== input.threadId) throw new Error("Draft is not in this thread");
+    const updated = await safeCall(() => this.gmail.users.drafts.update({ userId: "me", id: input.draftId, requestBody: { message: { raw, threadId: input.threadId } } }));
+    return { draftId: required(updated.data.id, "draft id") };
+  }
+
   async sendEmail(input: DraftInput): Promise<{ messageId: string }> {
     const raw = rawMessage(input);
     const { data } = await safeCall(() => this.gmail.users.messages.send({ userId: "me", requestBody: { raw, threadId: input.threadId } }));

@@ -54,7 +54,7 @@ export function createInboxMcpServer(prisma: PrismaClient, userId: string) {
     try { const { provider } = await context(accountId); const thread = await provider.getThread(threadId); return result({ threadId, messages: thread.messages.map(m => ({ id: m.id, labels: m.labelIds, ...getEmailForLLM(m) })) }); }
     catch { return failure(); }
   });
-  server.registerTool('create_reply_draft', { description: 'Create a draft reply using saved knowledge and examples. This never sends mail.', inputSchema: { accountId: id, threadId: id, instructions: z.string().max(4000).default('Write a helpful reply.') }, annotations: { destructiveHint: false, openWorldHint: false } }, async ({ accountId, threadId, instructions }) => {
+  server.registerTool('create_reply_draft', { description: 'Create or update a draft reply using saved knowledge and examples. This never sends mail.', inputSchema: { accountId: id, threadId: id, draftId: id.optional(), instructions: z.string().max(4000).default('Write a helpful reply.') }, annotations: { destructiveHint: false, openWorldHint: false } }, async ({ accountId, threadId, draftId, instructions }) => {
     try {
       const { account, provider } = await context(accountId); const thread = await provider.getThread(threadId);
       if (thread.id !== threadId || thread.messages.some(m => m.threadId !== threadId)) throw new Error('Provider thread mismatch');
@@ -63,7 +63,8 @@ export function createInboxMcpServer(prisma: PrismaClient, userId: string) {
       const to = senderAddress(message.headers.from); if (!to) throw new Error('Invalid sender');
       const action: Action = { id: 'mcp-draft', ruleId: '', type: 'DRAFT_EMAIL', label: null, subject: null, content: instructions, to: null, cc: null, bcc: null, url: null, delayMinutes: null, autoSend: false };
       const [draft] = await getActionItemsWithAiArgs({ prisma, emailAccountId: accountId, message, actions: [action], account });
-      const created = await provider.createDraft({ threadId, to, subject: /^re:/i.test(message.headers.subject) ? message.headers.subject : `Re: ${message.headers.subject}`, body: draft.content ?? '', inReplyTo: message.headers.messageId });
+      const input = { threadId, to, subject: /^re:/i.test(message.headers.subject) ? message.headers.subject : `Re: ${message.headers.subject}`, body: draft.content ?? '', inReplyTo: message.headers.messageId };
+      const created = draftId ? await provider.updateDraft({ ...input, draftId }) : await provider.createDraft(input);
       return result({ ...created, ...await refresh(account, threadId) });
     } catch { return failure(); }
   });

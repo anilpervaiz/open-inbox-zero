@@ -153,6 +153,11 @@ export class EmulatedMailProvider implements EmailProvider {
   }
 
   async createDraft(input: MailInput): Promise<{ draftId: string }> { return { draftId: await this.createMessage(input, "DRAFT") }; }
+  async updateDraft(input: MailInput & { draftId: string; threadId: string }): Promise<{ draftId: string }> {
+    const updated = await this.prisma.emailMessage.updateMany({ where: { emailAccountId: this.emailAccountId, messageId: input.draftId, threadId: input.threadId, labels: { has: "DRAFT" } }, data: { toEmail: input.to, ccEmail: input.cc, subject: input.subject, textBody: input.body, snippet: input.body.slice(0, 160), inReplyTo: input.inReplyTo } });
+    if (updated.count !== 1) throw new Error("Draft is not in this thread");
+    return { draftId: input.draftId };
+  }
   async sendEmail(input: MailInput): Promise<{ messageId: string }> { return { messageId: await this.createMessage(input, "SENT") }; }
 
   async restoreArchive(threadId: string, snapshotValue: Prisma.JsonValue): Promise<void> {

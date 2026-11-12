@@ -278,6 +278,12 @@ export class OutlookProvider implements EmailProvider {
     if (!created.id) throw new Error("Microsoft Graph response missing draft id");
     return { draftId: created.id };
   }
+  async updateDraft(input: DraftInput & { draftId: string; threadId: string }): Promise<{ draftId: string }> {
+    const existing = await this.request<{ id: string; isDraft: boolean; conversationId: string }>(`/me/messages/${encodeURIComponent(input.draftId)}?$select=id,isDraft,conversationId`);
+    if (existing.id !== input.draftId || !existing.isDraft || existing.conversationId !== input.threadId) throw new Error("Draft is not in this thread");
+    await this.patchMessage(input.draftId, { subject: input.subject, body: { contentType: "Text", content: input.body }, toRecipients: recipients(input.to), ccRecipients: recipients(input.cc) });
+    return { draftId: input.draftId };
+  }
   async sendEmail(input: DraftInput): Promise<{ messageId: string }> {
     const { draftId } = await this.createDraft(input);
     await this.request(`/me/messages/${encodeURIComponent(draftId)}/send`, { method: "POST" });

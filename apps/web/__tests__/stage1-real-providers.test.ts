@@ -62,6 +62,18 @@ describe("Gmail provider", () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 
+  it("updates only a draft in the requested Gmail thread", async () => {
+    const get = vi.fn(async () => ({ data: { id: "d1", message: { threadId: "other" } } }));
+    const update = vi.fn(async () => ({ data: { id: "d1" } }));
+    const provider = new GmailProvider({ users: { drafts: { get, update } } } as unknown as gmail_v1.Gmail, "gmail-account");
+    const input = { draftId: "d1", threadId: "t1", to: "a@example.com", subject: "Hello", body: "Updated" };
+    await expect(provider.updateDraft(input)).rejects.toThrow(/not in this thread/);
+    expect(update).not.toHaveBeenCalled();
+    get.mockResolvedValueOnce({ data: { id: "d1", message: { threadId: "t1" } } });
+    await expect(provider.updateDraft(input)).resolves.toEqual({ draftId: "d1" });
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses to delete a draft belonging to a different thread", async () => {
     const draftDelete = vi.fn(async () => ({ data: {} }));
     const api = { users: {
@@ -81,6 +93,17 @@ describe("Outlook provider", () => {
     expect(new OutlookProvider(token, "outlook-account").emailAccountId).toBe("outlook-account");
     expect(() => new OutlookProvider(token, "")).toThrow("Provider account ID is required");
     expect(token).not.toHaveBeenCalled();
+  });
+  it("updates only an Outlook draft in the requested conversation", async () => {
+    let conversationId = "other";
+    const request = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === "PATCH" ? new Response(null, { status: 204 }) : Response.json({ id: "d1", isDraft: true, conversationId }));
+    const provider = new OutlookProvider(async () => "token", "outlook-account", request as typeof fetch);
+    const input = { draftId: "d1", threadId: "t1", to: "a@example.com", subject: "Hello", body: "Updated" };
+    await expect(provider.updateDraft(input)).rejects.toThrow(/not in this thread/);
+    expect(request).toHaveBeenCalledTimes(1);
+    conversationId = "t1";
+    await expect(provider.updateDraft(input)).resolves.toEqual({ draftId: "d1" });
+    expect(request).toHaveBeenCalledTimes(3);
   });
   it("loads calendar attachment metadata and the original content-type header", async () => {
     const request = vi.fn(async (input: RequestInfo | URL) => {

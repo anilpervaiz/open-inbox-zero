@@ -97,6 +97,10 @@ test("seeds a real PostgreSQL database once without resetting user changes", asy
     expect(thread.messages).toHaveLength(2);
     const draft = await invoke("create_reply_draft", { accountId: demo.id, threadId: "launch" });
     expect(draft.draftId).toBeTruthy();
+    const updatedDraft = await invoke("create_reply_draft", { accountId: demo.id, threadId: "launch", draftId: draft.draftId, instructions: "Write an updated reply" });
+    expect(updatedDraft.draftId).toBe(draft.draftId);
+    const wrongThreadDraft = await call("tools/call", { name: "create_reply_draft", arguments: { accountId: demo.id, threadId: "demo-thread-07", draftId: draft.draftId } });
+    expect(wrongThreadDraft.result.isError).toBe(true);
     const run = await invoke("run_rules_on_thread", { accountId: demo.id, threadId: "demo-thread-07" });
     expect(run.execution.id).toBeTruthy();
     const undone = await invoke("undo_executed_rule", { accountId: demo.id, executionId: run.execution.id });
