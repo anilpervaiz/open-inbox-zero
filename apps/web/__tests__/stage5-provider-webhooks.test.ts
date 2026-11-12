@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ verify: vi.fn(), account: vi.fn(), subscription: vi.fn(), enqueue: vi.fn(), queue: vi.fn(() => ({})) }));
+const mocks = vi.hoisted(() => ({ verify: vi.fn(), account: vi.fn(), subscription: vi.fn(), pending: vi.fn(), enqueue: vi.fn(), queue: vi.fn(() => ({})) }));
 vi.mock('google-auth-library', () => ({ OAuth2Client: class { verifyIdToken = mocks.verify; } }));
-vi.mock('../utils/server/prisma', () => ({ prisma: { emailAccount: { findFirst: mocks.account }, providerSubscription: { findUnique: mocks.subscription } } }));
+vi.mock('../utils/server/prisma', () => ({ prisma: { emailAccount: { findFirst: mocks.account }, providerSubscription: { findUnique: mocks.subscription, findFirst: mocks.pending } } }));
 vi.mock('../utils/worker/provider-sync-queue', () => ({ enqueueProviderSync: mocks.enqueue, getProviderSyncQueue: mocks.queue }));
 import { POST as google } from '../app/api/google/webhook/route';
 import { POST as outlook } from '../app/api/outlook/webhook/route';
@@ -36,6 +36,13 @@ describe('provider webhooks', () => {
     expect(mocks.enqueue).not.toHaveBeenCalled();
     expect((await outlook(outlookRequest('right'))).status).toBe(202);
     expect(mocks.enqueue).toHaveBeenCalledWith({}, { provider: 'microsoft', emailAccountId: 'account', messageId: 'message', changeType: 'created' });
+  });
+  it('asks Graph to retry a notification arriving during subscription setup', async () => {
+    mocks.subscription.mockResolvedValue(null); mocks.pending.mockResolvedValueOnce({ id: 'pending' }).mockResolvedValueOnce(null);
+    expect((await outlook(outlookRequest('right'))).status).toBe(503);
+    expect(mocks.pending).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ clientStateHash: createHash('sha256').update('right').digest('hex') }) }));
+    expect((await outlook(outlookRequest('wrong'))).status).toBe(401);
+    expect(mocks.enqueue).not.toHaveBeenCalled();
   });
   it('returns a retryable error when the verified job cannot be enqueued', async () => {
     const subscription = { status: 'ACTIVE', clientStateHash: createHash('sha256').update('right').digest('hex'), expiresAt: new Date(Date.now() + 60_000), emailAccount: { id: 'account', provider: 'microsoft' } };
