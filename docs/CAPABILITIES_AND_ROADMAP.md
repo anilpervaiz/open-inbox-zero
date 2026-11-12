@@ -19,7 +19,7 @@ Snapshot: 2026-11-11, application commit `cd76041`. “Implemented” means code
 
 ## Ordered next work
 
-1. Finish **Stage 5**: account authentication and authorization, provider credentials and background execution, API hardening, provider health checks, and live-provider verification for the MCP tools. Preserve the local emulator path and add tests for account isolation and abuse cases.
+1. Finish **Stage 5**: account authentication and authorization, provider credentials and background execution, API hardening and live-provider verification, including MCP tools and health checks. Preserve the local emulator path and add tests for account isolation and abuse cases.
 2. Address the remaining architecture gaps: browser cache/shared packages, CLI and the production queue choice, or document and explicitly approve any deviation from the original target.
 3. Build and run **Stage 6** evaluation; report measured accuracy, VIP false archives, unauthorized sends and learned-group hits without inventing results.
 4. Complete **Stage 7** packaging, deployment documentation, CI and security checks.
@@ -27,7 +27,7 @@ Snapshot: 2026-11-11, application commit `cd76041`. “Implemented” means code
 
 Each stage is expected to pass `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` before its stage commit, as specified in the [build plan](../CODEX_BUILD_PLAN.md).
 
-Stage 5 progress: `/api/health` provides free liveness and authenticated database, configured Redis, and local emulator checks; live provider checks are not implemented. Local API burst limits are process-local; MCP uses Redis-backed limiting outside local mode; trusted client-IP identification remains outstanding.
+Stage 5 progress: `/api/health` provides free liveness and authenticated database, configured Redis, local emulator and up to ten connected provider checks; more than ten providers are reported as partial. Live provider verification remains outstanding. Local API burst limits are process-local; MCP uses Redis-backed limiting outside local mode; trusted client-IP identification remains outstanding.
 
 The user API-key model stores only a hash and supports expiration and owner-scoped revocation. The six MCP tools use these keys for owned emulator and connected provider accounts. Signed-in users can create and revoke assistant keys in the workspace; live-provider MCP verification remains outstanding; configured Better Auth sessions can also authenticate MCP.
 
