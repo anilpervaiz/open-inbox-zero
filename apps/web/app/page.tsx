@@ -1,9 +1,14 @@
 import { headers } from 'next/headers';
 import { Workspace } from './components/workspace';
+import { authConfiguration, getSessionAuth } from '../utils/auth/session-auth';
 export const dynamic = 'force-dynamic';
 export default async function Home() {
-  const host = (await headers()).get('host') ?? '';
+  const requestHeaders = await headers();
+  const host = requestHeaders.get('host') ?? '';
   const local = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host);
   const token = local && process.env.LOCAL_EMULATOR_MODE === '1' ? process.env.LOCAL_EMULATOR_TOKEN ?? '' : '';
-  return <Workspace token={token} initialView="important"/>;
+  const config = authConfiguration();
+  const auth = getSessionAuth();
+  const session = auth ? await auth.api.getSession({ headers: requestHeaders }).catch(() => null) : null;
+  return <Workspace token={token} signedIn={Boolean(session)} providers={{ google: Boolean(config?.google), microsoft: Boolean(config?.microsoft) }} initialView="important"/>;
 }

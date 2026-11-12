@@ -16,7 +16,7 @@ export async function POST(request: Request): Promise<Response> {
       const subscription = await prisma.providerSubscription.findUnique({ where: { subscriptionId: notification.subscriptionId }, include: { emailAccount: { select: { id: true, provider: true } } } });
       const actual = createHash('sha256').update(notification.clientState).digest();
       const stored = subscription && /^[a-f0-9]{64}$/.test(subscription.clientStateHash) ? Buffer.from(subscription.clientStateHash, 'hex') : Buffer.alloc(32);
-      if (!subscription || !timingSafeEqual(actual, stored) || subscription.expiresAt <= new Date() || subscription.emailAccount.provider !== 'microsoft') return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      if (!subscription || subscription.status !== 'ACTIVE' || !timingSafeEqual(actual, stored) || subscription.expiresAt <= new Date() || subscription.emailAccount.provider !== 'microsoft') return Response.json({ error: 'Unauthorized' }, { status: 401 });
       jobs.push({ provider: 'microsoft' as const, emailAccountId: subscription.emailAccount.id, messageId: notification.resourceData.id, changeType: notification.changeType });
     }
     const queue = getProviderSyncQueue();

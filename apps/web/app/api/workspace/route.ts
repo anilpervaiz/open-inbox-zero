@@ -1,9 +1,11 @@
-import { localRateLimit } from '../../../utils/rate-limit';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../utils/server/prisma';
-import { authorizeLocalApi } from '../../../utils/server/local-api-auth';
+import { workspacePrincipal, workspaceRateLimit, type WorkspacePrincipal } from '../../../utils/server/workspace-auth';
 import { EmulatedMailProvider } from '../../../utils/mail-provider/emulated-provider';
+import { resolveMailProvider } from '../../../utils/mail-provider/provider-resolver';
+import { cacheProviderMessage } from '../../../utils/worker/provider-sync';
+import { enqueueProviderSync, getProviderSyncQueue } from '../../../utils/worker/provider-sync-queue';
 import { runRules } from '../../../utils/ai/choose-rule/run-rules';
 import { executeAct, undoExecutedRule } from '../../../utils/ai/choose-rule/execute';
 import { refreshSenderAnalytics, unsubscribeSender } from '../../../utils/unsubscribe';
@@ -40,18 +42,23 @@ async function refreshAnalytics(accountId: string) {
   }
   await pending;
 }
-async function accountFor(accountId: string) {
+async function accountFor(accountId: string, principal: WorkspacePrincipal) {
+  if (principal.kind === 'session') return prisma.emailAccount.findFirst({ where: { id: accountId, userId: principal.userId } });
   const account = await prisma.emailAccount.findUnique({ where: { id: accountId } });
   return account?.provider === 'emulator' ? account : null;
 }
 export async function GET(request: Request): Promise<Response> {
-  if (!authorizeLocalApi(request)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  const limit = await localRateLimit(new URL(request.url).searchParams.get('account') ?? 'default');
+  let principal: WorkspacePrincipal | null;
+  try { principal = await workspacePrincipal(request); } catch { return Response.json({ error: 'Service unavailable' }, { status: 503 }); }
+  if (!principal) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  const limit = await workspaceRateLimit(principal, new URL(request.url).searchParams.get('account') ?? 'default');
   if (limit) return limit;
   try {
-    const accounts = await prisma.emailAccount.findMany({ where: { provider: 'emulator' }, select: { id: true, email: true, coldEmailPrompt: true }, orderBy: { email: 'asc' } });
-    const account = accounts.find((item) => item.id === new URL(request.url).searchParams.get('account')) ?? accounts[0];
-    if (!account) return Response.json({ accounts: [], account: null });
+    const accounts = await prisma.emailAccount.findMany({ where: principal.kind === 'local' ? { provider: 'emulator' } : { userId: principal.userId }, select: { id: true, email: true, coldEmailPrompt: true, initialSyncStatus: true }, orderBy: { email: 'asc' } });
+    const requestedAccount = new URL(request.url).searchParams.get('account');
+    const account = requestedAccount ? accounts.find((item) => item.id === requestedAccount) : accounts[0];
+    if (requestedAccount && !account) return Response.json({ error: 'Account not found' }, { status: 404 });
+    if (!account) return Response.json({ accounts: [], account: null, messages: [], rules: [], groups: [], trackers: [], executions: [], newsletters: [], cold: [], knowledge: [] });
     await refreshAnalytics(account.id);
     const [messages, rules, groups, trackers, executions, newsletters, cold, knowledge] = await Promise.all([
       prisma.emailMessage.findMany({ where: { emailAccountId: account.id }, orderBy: { internalDate: 'desc' }, select: { messageId: true, threadId: true, fromEmail: true, fromName: true, toEmail: true, subject: true, snippet: true, textBody: true, internalDate: true, labels: true, unread: true, archived: true, listUnsubscribe: true, listUnsubscribePost: true } }),
@@ -67,23 +74,26 @@ export async function GET(request: Request): Promise<Response> {
   } catch { return Response.json({ error: 'Mailbox could not be loaded' }, { status: 500 }); }
 }
 export async function POST(request: Request): Promise<Response> {
-  if (!authorizeLocalApi(request)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  let principal: WorkspacePrincipal | null;
+  try { principal = await workspacePrincipal(request); } catch { return Response.json({ error: 'Service unavailable' }, { status: 503 }); }
+  if (!principal) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) return Response.json({ error: 'Expected JSON' }, { status: 415 });
   let data: z.infer<typeof input>;
   try { const text = await request.text(); if (text.length > 65536) return Response.json({ error: 'Request too large' }, { status: 413 }); data = input.parse(JSON.parse(text)); }
   catch { return Response.json({ error: 'Invalid request' }, { status: 400 }); }
-  const limit = await localRateLimit(data.accountId);
+  const limit = await workspaceRateLimit(principal, data.accountId);
   if (limit) return limit;
   try {
-    const account = await accountFor(data.accountId);
+    const account = await accountFor(data.accountId, principal);
     if (!account) return Response.json({ error: 'Account not found' }, { status: 404 });
-    const provider = new EmulatedMailProvider(prisma, account.id);
+    const provider = account.provider === 'emulator' ? new EmulatedMailProvider(prisma, account.id) : await resolveMailProvider(prisma, account.id);
+    const refreshThreads = new Set<string>();
     switch (data.operation) {
-      case 'archive': await provider.archiveThread(data.threadId); break;
-      case 'read': await provider.markRead(data.threadId, true); break;
+      case 'archive': await provider.archiveThread(data.threadId); refreshThreads.add(data.threadId); break;
+      case 'read': await provider.markRead(data.threadId, true); refreshThreads.add(data.threadId); break;
       case 'run-all': {
         const messages = await prisma.emailMessage.findMany({ where: { emailAccountId: account.id, archived: false, labels: { has: 'INBOX' } }, orderBy: { internalDate: 'asc' }, take: 100 });
-        for (const row of messages) await runRules({ prisma, provider, emailAccountId: account.id, message: await provider.getMessage(row.messageId) });
+        for (const row of messages) { await runRules({ prisma, provider, emailAccountId: account.id, message: await provider.getMessage(row.messageId) }); refreshThreads.add(row.threadId); }
         break;
       }
       case 'bulk-clean': {
@@ -91,10 +101,10 @@ export async function POST(request: Request): Promise<Response> {
         const newsletters = await prisma.newsletter.findMany({ where: { emailAccountId: account.id }, select: { fromEmail: true } });
         const messages = await prisma.emailMessage.findMany({ where: { emailAccountId: account.id, fromEmail: { in: newsletters.map((entry) => entry.fromEmail) }, internalDate: { lt: cutoff }, archived: false }, select: { threadId: true }, take: 500 });
         const threadIds = [...new Set(messages.map((message) => message.threadId))];
-        if (threadIds.length) { const context = { prisma, provider, emailAccountId: account.id }; const job = await createCleanupJob({ ...context, threadIds, olderThan: cutoff, mode: 'NEWSLETTERS' }); await runCleanupJob({ ...context, cleanupJobId: job.id }); }
+        if (threadIds.length) { const context = { prisma, provider, emailAccountId: account.id }; const job = await createCleanupJob({ ...context, threadIds, olderThan: cutoff, mode: 'NEWSLETTERS' }); await runCleanupJob({ ...context, cleanupJobId: job.id }); threadIds.forEach((threadId) => refreshThreads.add(threadId)); }
         break;
       }
-      case 'undo': await undoExecutedRule({ prisma, provider, emailAccountId: account.id, executedRuleId: data.executionId }); break;
+      case 'undo': { const undone = await undoExecutedRule({ prisma, provider, emailAccountId: account.id, executedRuleId: data.executionId }); refreshThreads.add(undone.threadId); break; }
       case 'change-rule': {
         const execution = await prisma.executedRule.findFirst({ where: { id: data.executionId, emailAccountId: account.id } });
         if (!execution?.ruleId || execution.ruleId === data.correctRuleId || execution.status === 'REJECTED') throw new Error('Rule correction unavailable');
@@ -109,15 +119,18 @@ export async function POST(request: Request): Promise<Response> {
         await recordLabelRemovalLearning(prisma, { emailAccountId: account.id, fromEmail: sender, subject: message.headers.subject, wrongRuleId: execution.ruleId, correctRuleId: data.correctRuleId });
         const replacement = await executeAct({ prisma, provider, emailAccountId: account.id, message, rule: correct, actions, matchReasons: [{ type: 'MANUAL', detail: 'User-selected replacement rule' }], selectionMetadata: { stage: 'MANUAL', ruleName: correct.name }, hasVerifiedSenderReplyHistory: history, correctionId: `correction:${randomUUID()}` });
         if (replacement.status === 'ERROR' || replacement.status === 'SKIPPED') throw new Error('Replacement rule could not be applied');
+        refreshThreads.add(execution.threadId);
         break;
       }
-      case 'run': { const message = await provider.getMessage(data.messageId); await runRules({ prisma, provider, emailAccountId: account.id, message }); break; }
+      case 'run': { const message = await provider.getMessage(data.messageId); await runRules({ prisma, provider, emailAccountId: account.id, message }); refreshThreads.add(message.threadId); break; }
       case 'draft': {
         if (data.draftId) {
+          if (account.provider !== 'emulator') throw new Error('Editing provider drafts is not yet supported');
           const draft = await prisma.emailMessage.findFirst({ where: { emailAccountId: account.id, messageId: data.draftId, threadId: data.threadId, labels: { has: 'DRAFT' } } });
           if (!draft) throw new Error('Draft not found');
           await prisma.emailMessage.update({ where: { id: draft.id }, data: { toEmail: data.to, subject: data.subject, textBody: data.body, snippet: data.body.slice(0, 160) } });
         } else await provider.createDraft({ threadId: data.threadId, to: data.to, subject: data.subject, body: data.body });
+        refreshThreads.add(data.threadId);
         break;
       }
       case 'rule': {
@@ -149,9 +162,24 @@ export async function POST(request: Request): Promise<Response> {
         const cold = await prisma.coldEmail.findFirst({ where: { id: data.coldId, emailAccountId: account.id } }); if (!cold) throw new Error('Sender not found');
         const execution = await prisma.executedRule.findUnique({ where: { emailAccountId_threadId_messageId: { emailAccountId: account.id, threadId: cold.threadId, messageId: cold.messageId } } });
         if (execution && execution.status !== 'REJECTED') await undoExecutedRule({ prisma, provider, emailAccountId: account.id, executedRuleId: execution.id });
-        await prisma.coldEmail.update({ where: { id: cold.id }, data: { status: 'NOT_COLD' } }); break;
+        await prisma.coldEmail.update({ where: { id: cold.id }, data: { status: 'NOT_COLD' } }); refreshThreads.add(cold.threadId); break;
       }
     }
-    return Response.json({ ok: true });
+    let refreshPending = false; let refreshUnscheduled = false;
+    if (account.provider !== 'emulator') {
+      const ids = [...refreshThreads]; const later = ids.slice(10);
+      for (const threadId of ids.slice(0, 10)) {
+        try {
+          const thread = await provider.getThread(threadId);
+          if (thread.id !== threadId || thread.messages.some((message) => message.threadId !== threadId)) throw new Error('Provider thread mismatch');
+          for (const message of thread.messages) await cacheProviderMessage(prisma, account.id, message);
+        } catch { later.push(threadId); }
+      }
+      for (const threadId of later) {
+        try { await enqueueProviderSync(getProviderSyncQueue(), { provider: 'refresh', emailAccountId: account.id, threadId }); refreshPending = true; }
+        catch { refreshUnscheduled = true; }
+      }
+    }
+    return Response.json({ ok: true, ...(refreshPending ? { refreshPending: true } : {}), ...(refreshUnscheduled ? { refreshUnscheduled: true } : {}) });
   } catch { return Response.json({ error: 'Action could not be completed' }, { status: 400 }); }
 }

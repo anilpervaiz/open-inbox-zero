@@ -6,6 +6,7 @@ import type { EmailProvider, ParsedMessage } from '../mail-provider/types';
 import { senderAddress } from '../rule/static-from-risk';
 import { runRules } from '../ai/choose-rule/run-rules';
 import { providerSyncJobSchema, type ProviderSyncJob } from './provider-sync-queue';
+import { ensureMicrosoftSubscription } from './provider-subscriptions';
 
 const gmailHistory = z.object({
   historyId: z.string().regex(/^\d+$/), nextPageToken: z.string().optional(),
@@ -17,7 +18,7 @@ const gmailHistory = z.object({
   })).optional(),
 });
 
-async function saveAndProcess(prisma: PrismaClient, provider: EmailProvider, emailAccountId: string, message: ParsedMessage) {
+export async function cacheProviderMessage(prisma: PrismaClient, emailAccountId: string, message: ParsedMessage) {
   const from = senderAddress(message.headers.from);
   if (!from || !message.id || !message.threadId || !Number.isFinite(message.internalDate.getTime())) throw new Error('Provider message is invalid');
   const fields = {
@@ -29,6 +30,10 @@ async function saveAndProcess(prisma: PrismaClient, provider: EmailProvider, ema
     listUnsubscribe: message.headers.listUnsubscribe ?? null, listUnsubscribePost: message.headers.listUnsubscribePost ?? null, internalDate: message.internalDate,
   };
   await prisma.emailMessage.upsert({ where: { emailAccountId_messageId: { emailAccountId, messageId: message.id } }, create: { emailAccountId, messageId: message.id, ...fields }, update: fields });
+}
+
+async function saveAndProcess(prisma: PrismaClient, provider: EmailProvider, emailAccountId: string, message: ParsedMessage) {
+  await cacheProviderMessage(prisma, emailAccountId, message);
   await runRules({ prisma, provider, emailAccountId, message });
 }
 
@@ -37,13 +42,45 @@ export async function syncProviderJob(input: { prisma: PrismaClient; job: Provid
   const job = providerSyncJobSchema.parse(input.job);
   const { prisma } = input;
   const account = await prisma.emailAccount.findUnique({ where: { id: job.emailAccountId } });
-  if (!account || account.provider !== job.provider) throw new Error('Provider account unavailable');
+  if (!account || !['google', 'microsoft'].includes(account.provider) || (!['bootstrap', 'refresh'].includes(job.provider) && account.provider !== job.provider)) throw new Error('Provider account unavailable');
   let lock;
   try { lock = await prisma.threadExecutionLock.create({ data: { emailAccountId: account.id, threadId: 'provider-sync:account' } }); }
   catch { throw new Error('Provider synchronization is already running or requires recovery'); }
   try {
     const provider = await (input.resolveProvider ?? resolveMailProvider)(prisma, account.id);
     if (provider.emailAccountId !== account.id || provider.providerName !== account.provider) throw new Error('Provider account mismatch');
+    if (job.provider === 'refresh') {
+      const thread = await provider.getThread(job.threadId);
+      if (thread.id !== job.threadId || thread.messages.some(message => message.threadId !== job.threadId)) throw new Error('Provider thread mismatch');
+      for (const message of thread.messages) await cacheProviderMessage(prisma, account.id, message);
+      return;
+    }
+    if (job.provider === 'bootstrap') {
+      await prisma.emailAccount.update({ where: { id: account.id }, data: { initialSyncStatus: 'RUNNING' } });
+      // Establish the Gmail change cursor before taking the initial snapshot.
+      const topic = process.env.GOOGLE_PUBSUB_TOPIC;
+      if (account.provider === 'google' && !account.lastSyncedHistoryId && topic) {
+        if (!/^projects\/[^/]+\/topics\/[^/]+$/.test(topic)) throw new Error('Gmail notification topic is invalid');
+        const access = await getProviderAccessToken({ prisma, emailAccountId: account.id, requestFetch: input.requestFetch });
+        let response: Response;
+        try { response = await (input.requestFetch ?? fetch)('https://gmail.googleapis.com/gmail/v1/users/me/watch', { method: 'POST', headers: { authorization: `Bearer ${access}`, 'content-type': 'application/json' }, body: JSON.stringify({ topicName: topic }), redirect: 'error', signal: AbortSignal.timeout(15_000) }); }
+        catch { throw new Error('Gmail watch setup failed'); }
+        if (!response.ok) throw new Error('Gmail watch setup failed');
+        const watch = z.object({ historyId: z.string().regex(/^\d+$/).max(32) }).safeParse(await response.json().catch(() => null));
+        if (!watch.success) throw new Error('Gmail watch response invalid');
+        await prisma.emailAccount.update({ where: { id: account.id }, data: { lastSyncedHistoryId: watch.data.historyId } });
+      }
+      if (account.provider === 'microsoft') await ensureMicrosoftSubscription({ prisma, emailAccountId: account.id, callbackBaseUrl: process.env.BETTER_AUTH_URL, requestFetch: input.requestFetch });
+      // Load a bounded initial view without automatically applying rules to old mail.
+      const { threadIds } = await provider.listThreads({ maxResults: 200 });
+      for (const threadId of threadIds) {
+        const thread = await provider.getThread(threadId);
+        if (thread.id !== threadId || thread.messages.some(message => message.threadId !== threadId)) throw new Error('Provider thread mismatch');
+        for (const message of thread.messages) await cacheProviderMessage(prisma, account.id, message);
+      }
+      await prisma.emailAccount.update({ where: { id: account.id }, data: { initialSyncStatus: 'COMPLETED' } });
+      return;
+    }
     if (job.provider === 'microsoft') {
       if (job.changeType === 'deleted') {
         // A folder notification can mean a move, not permanent deletion.
@@ -83,5 +120,8 @@ export async function syncProviderJob(input: { prisma: PrismaClient; job: Provid
     const safe = BigInt(latest) < notified ? BigInt(latest) : notified;
     const cursor = safe > BigInt(account.lastSyncedHistoryId) ? safe.toString() : account.lastSyncedHistoryId;
     await prisma.emailAccount.update({ where: { id: account.id }, data: { lastSyncedHistoryId: cursor } });
+  } catch (error) {
+    if (job.provider === 'bootstrap') await prisma.emailAccount.updateMany({ where: { id: account.id }, data: { initialSyncStatus: 'FAILED' } });
+    throw error;
   } finally { await prisma.threadExecutionLock.deleteMany({ where: { id: lock.id, emailAccountId: account.id } }); }
 }

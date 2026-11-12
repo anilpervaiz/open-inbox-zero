@@ -30,7 +30,7 @@ describe('provider webhooks', () => {
     const validation = await outlook(new Request('http://localhost/api/outlook/webhook?validationToken=abc%2B123', { method: 'POST' }));
     expect(await validation.text()).toBe('abc+123');
     expect(validation.headers.get('content-type')).toContain('text/plain');
-    const subscription = { clientStateHash: createHash('sha256').update('right').digest('hex'), expiresAt: new Date(Date.now() + 60_000), emailAccount: { id: 'account', provider: 'microsoft' } };
+    const subscription = { status: 'ACTIVE', clientStateHash: createHash('sha256').update('right').digest('hex'), expiresAt: new Date(Date.now() + 60_000), emailAccount: { id: 'account', provider: 'microsoft' } };
     mocks.subscription.mockResolvedValue(subscription);
     expect((await outlook(outlookRequest('wrong'))).status).toBe(401);
     expect(mocks.enqueue).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ describe('provider webhooks', () => {
     expect(mocks.enqueue).toHaveBeenCalledWith({}, { provider: 'microsoft', emailAccountId: 'account', messageId: 'message', changeType: 'created' });
   });
   it('returns a retryable error when the verified job cannot be enqueued', async () => {
-    const subscription = { clientStateHash: createHash('sha256').update('right').digest('hex'), expiresAt: new Date(Date.now() + 60_000), emailAccount: { id: 'account', provider: 'microsoft' } };
+    const subscription = { status: 'ACTIVE', clientStateHash: createHash('sha256').update('right').digest('hex'), expiresAt: new Date(Date.now() + 60_000), emailAccount: { id: 'account', provider: 'microsoft' } };
     mocks.subscription.mockResolvedValue(subscription); mocks.enqueue.mockRejectedValueOnce(new Error('redis secret'));
     const response = await outlook(outlookRequest('right'));
     expect(response.status).toBe(503); expect(await response.text()).not.toContain('secret');

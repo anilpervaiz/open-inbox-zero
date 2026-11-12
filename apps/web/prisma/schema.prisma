@@ -91,6 +91,14 @@ enum ColdEmailStatus {
   NOT_COLD
 }
 
+enum InitialSyncStatus {
+  NOT_STARTED
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 enum NewsletterStatus {
   AUTO_ARCHIVE
   AUTO_ARCHIVE_AND_LABEL
@@ -183,6 +191,7 @@ model EmailAccount {
   encryptedRefreshToken String?
   accessTokenExpiresAt  DateTime?
   lastSyncedHistoryId  String?
+  initialSyncStatus    InitialSyncStatus    @default(NOT_STARTED)
   about                String?              // User profile context for AI drafting
   signature            String?
   autoCategorizeSenders Boolean             @default(true)
@@ -212,6 +221,7 @@ model ProviderSubscription {
   emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
   subscriptionId String       @unique
   clientStateHash String
+  status          String       @default("ACTIVE")
   expiresAt      DateTime
   createdAt      DateTime     @default(now())
 

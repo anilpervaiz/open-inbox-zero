@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ session: vi.fn(), token: vi.fn(), connect: vi.fn() }));
 vi.mock('../utils/auth/session-auth', () => ({ getSessionAuth: () => ({ api: { getSession: mocks.session, getAccessToken: mocks.token } }) }));
 vi.mock('../utils/auth/connect-mailbox', () => ({ connectOAuthMailbox: mocks.connect }));
-vi.mock('../utils/server/prisma', () => ({ prisma: {} }));
+vi.mock('../utils/worker/provider-sync-queue', () => ({ getProviderSyncQueue: () => ({}), enqueueProviderSync: async () => ({}) }));
+vi.mock('../utils/server/prisma', () => ({ prisma: { emailAccount: { update: async () => ({}), updateMany: async () => ({ count: 1 }) } } }));
 vi.mock('../utils/server/public-rate-limit', () => ({ publicRateLimitStore: () => ({ consume: async () => ({ counts: [1, 1], retryAfterMs: 1000 }) }) }));
 import { POST } from '../app/api/accounts/connect/route';
 

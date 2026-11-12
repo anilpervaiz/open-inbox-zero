@@ -4,6 +4,8 @@ import { z } from 'zod';
 
 const id = z.string().min(1).max(512);
 export const providerSyncJobSchema = z.discriminatedUnion('provider', [
+  z.object({ provider: z.literal('bootstrap'), emailAccountId: id }).strict(),
+  z.object({ provider: z.literal('refresh'), emailAccountId: id, threadId: id }).strict(),
   z.object({ provider: z.literal('google'), emailAccountId: id, historyId: z.string().regex(/^\d+$/).max(32) }).strict(),
   z.object({ provider: z.literal('microsoft'), emailAccountId: id, messageId: id, changeType: z.enum(['created', 'updated', 'deleted']) }).strict(),
 ]);

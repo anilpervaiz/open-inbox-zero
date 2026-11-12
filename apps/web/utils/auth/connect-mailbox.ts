@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
+import { encryptToken } from '../encryption';
 
 const email = z.string().email().max(320).transform(value => value.toLowerCase());
 const googleProfile = z.object({ emailAddress: email });
@@ -18,6 +19,7 @@ export async function connectOAuthMailbox(input: { prisma: PrismaClient; userId:
   if (!fullGoogleAccess && required.some(scope => !scopes.has(scope))) throw new Error('Mailbox permissions are incomplete');
   const token = await input.getAccessToken(identity.id, userId);
   if (!token || token.length > 16384) throw new Error('Mailbox authorization is incomplete');
+  const encryptedAccessToken = encryptToken(token);
   const url = identity.providerId === 'google' ? 'https://gmail.googleapis.com/gmail/v1/users/me/profile' : 'https://graph.microsoft.com/v1.0/me?$select=mail';
   let response: Response;
   try { response = await (input.requestFetch ?? fetch)(url, { headers: { authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(10_000) }); }
@@ -32,6 +34,6 @@ export async function connectOAuthMailbox(input: { prisma: PrismaClient; userId:
     if (existing.userId !== userId || existing.authAccountId !== identity.id || existing.provider !== identity.providerId) throw new Error('Mailbox is already connected');
     return { id: existing.id, email: existing.email, provider: existing.provider };
   }
-  const mailbox = await prisma.emailAccount.create({ data: { userId, email: address, provider: identity.providerId, authAccountId: identity.id }, select: { id: true, email: true, provider: true } });
+  const mailbox = await prisma.emailAccount.create({ data: { userId, email: address, provider: identity.providerId, authAccountId: identity.id, encryptedAccessToken }, select: { id: true, email: true, provider: true } });
   return mailbox;
 }

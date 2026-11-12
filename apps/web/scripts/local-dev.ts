@@ -35,6 +35,16 @@ function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<v
   });
 }
 
+/** Add the nullable OAuth key and its index without accepting destructive schema changes. */
+export async function prepareSafeOAuthIndex(prisma: PrismaClient): Promise<void> {
+  const rows = await prisma.$queryRaw<{ present: boolean }[]>`SELECT to_regclass('"EmailAccount"') IS NOT NULL AS present`;
+  if (!rows[0]?.present) return;
+  await prisma.$transaction([
+    prisma.$executeRaw`ALTER TABLE "EmailAccount" ADD COLUMN IF NOT EXISTS "authAccountId" TEXT`,
+    prisma.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "EmailAccount_authAccountId_key" ON "EmailAccount" ("authAccountId")`,
+  ]);
+}
+
 /** Seed a new demo mailbox once. Existing accounts and their data are never reset. */
 export async function seedDemo(prisma: PrismaClient): Promise<void> {
   await prisma.$transaction(async (tx) => {
@@ -162,6 +172,8 @@ async function main(): Promise<void> {
 
     const env = { ...process.env, DATABASE_URL: databaseUrl, LOCAL_EMULATOR_MODE: "1", LOCAL_EMULATOR_TOKEN: randomBytes(32).toString("hex") };
     process.env.DATABASE_URL = databaseUrl;
+    const preparation = new PrismaClient();
+    try { await prepareSafeOAuthIndex(preparation); } finally { await preparation.$disconnect(); }
     await run("pnpm", ["exec", "prisma", "db", "push", "--skip-generate"], env);
     const prisma = new PrismaClient();
     try { await seedDemo(prisma); } finally { await prisma.$disconnect(); }

@@ -5,6 +5,7 @@ import { prisma } from '../../../../utils/server/prisma';
 import { checkRateLimit } from '../../../../utils/rate-limit';
 import { publicRateLimitStore } from '../../../../utils/server/public-rate-limit';
 import { readJsonBody } from '../../../../utils/webhooks/request';
+import { enqueueProviderSync, getProviderSyncQueue } from '../../../../utils/worker/provider-sync-queue';
 
 const bodySchema = z.object({ authAccountId: z.string().min(1).max(256) }).strict();
 export async function POST(request: Request): Promise<Response> {
@@ -23,8 +24,13 @@ export async function POST(request: Request): Promise<Response> {
   let data: z.infer<typeof bodySchema>;
   try { data = bodySchema.parse(await readJsonBody(request, 16_384)); }
   catch { return Response.json({ error: 'Invalid request' }, { status: 400 }); }
+  let queue;
+  try { queue = getProviderSyncQueue(); } catch { return Response.json({ error: 'Synchronization is unavailable' }, { status: 503 }); }
   try {
     const mailbox = await connectOAuthMailbox({ prisma, userId: session.user.id, authAccountId: data.authAccountId, getAccessToken: async (accountId, userId) => (await auth.api.getAccessToken({ body: { accountId, userId } })).accessToken });
-    return Response.json({ mailbox }, { headers: { 'Cache-Control': 'no-store' } });
+    await prisma.emailAccount.update({ where: { id: mailbox.id }, data: { initialSyncStatus: 'PENDING' } });
+    try { await enqueueProviderSync(queue, { provider: 'bootstrap', emailAccountId: mailbox.id }); }
+    catch { await prisma.emailAccount.updateMany({ where: { id: mailbox.id, initialSyncStatus: 'PENDING' }, data: { initialSyncStatus: 'FAILED' } }); return Response.json({ error: 'Synchronization is unavailable' }, { status: 503 }); }
+    return Response.json({ mailbox, sync: 'queued' }, { headers: { 'Cache-Control': 'no-store' } });
   } catch { return Response.json({ error: 'Mailbox could not be connected' }, { status: 400 }); }
 }
