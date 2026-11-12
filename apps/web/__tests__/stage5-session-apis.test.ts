@@ -1,0 +1,25 @@
+import { afterEach, expect, it, vi } from 'vitest';
+const mocks = vi.hoisted(() => ({ principal: vi.fn(), limit: vi.fn(), findFirst: vi.fn(), provider: vi.fn(), createJob: vi.fn(), runJob: vi.fn(), enqueue: vi.fn(), digest: vi.fn() }));
+vi.mock('../utils/server/workspace-auth', () => ({ workspacePrincipal: mocks.principal, workspaceRateLimit: mocks.limit }));
+vi.mock('../utils/server/prisma', () => ({ prisma: { emailAccount: { findFirst: mocks.findFirst } } }));
+vi.mock('../utils/mail-provider/provider-resolver', () => ({ resolveMailProvider: mocks.provider }));
+vi.mock('../utils/worker/provider-sync-queue', () => ({ getProviderSyncQueue: () => ({}), enqueueProviderSync: mocks.enqueue }));
+vi.mock('../utils/cleanup/cleanup-jobs', () => ({ createCleanupJob: mocks.createJob, runCleanupJob: mocks.runJob, undoCleanupJob: vi.fn() }));
+vi.mock('../utils/ai/digest/digest', () => ({ generateDigest: mocks.digest }));
+import { GET } from '../app/api/digest/route';
+import { POST } from '../app/api/clean/route';
+afterEach(() => vi.clearAllMocks());
+it('scopes digest and cleanup to the session owner and preserves a completed cleanup if refresh fails', async () => {
+  mocks.principal.mockResolvedValue({ kind: 'session', userId: 'owner' }); mocks.limit.mockResolvedValue(null);
+  mocks.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+  expect((await GET(new Request('https://inbox.example/api/digest?accountId=other'))).status).toBe(404);
+  const action = () => new Request('https://inbox.example/api/clean', { method: 'POST', headers: { origin: 'https://inbox.example', 'content-type': 'application/json' }, body: JSON.stringify({ operation: 'archive', accountId: 'other', threadIds: ['t'], olderThan: '2024-01-01T00:00:00.000Z', mode: 'BOTH' }) });
+  expect((await POST(action())).status).toBe(404);
+  expect(mocks.findFirst).toHaveBeenCalledWith({ where: { id: 'other', userId: 'owner' } });
+  expect(mocks.provider).not.toHaveBeenCalled();
+  mocks.findFirst.mockResolvedValue({ id: 'other', provider: 'google', userId: 'owner' }); mocks.provider.mockResolvedValue({});
+  mocks.createJob.mockResolvedValue({ id: 'job' }); mocks.runJob.mockResolvedValue({ id: 'job', status: 'COMPLETED', threads: [{ threadId: 't', startedAt: new Date() }] }); mocks.enqueue.mockRejectedValue(new Error('queue down'));
+  const completed = await POST(action()); expect(completed.status).toBe(200);
+  expect(await completed.json()).toMatchObject({ id: 'job', status: 'COMPLETED', refreshUnscheduled: true });
+  expect(mocks.runJob).toHaveBeenCalledTimes(1);
+});

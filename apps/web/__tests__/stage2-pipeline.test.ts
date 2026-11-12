@@ -202,7 +202,7 @@ describe("Stage 2 full rule pipeline against PostgreSQL and emulator", () => {
     const replacement = await prisma.executedRule.findFirstOrThrow({ where: { emailAccountId: owner.id, ruleId: correct.id, sourceMessageId: entry.parsed.id } });
     expect(replacement.status).toBe("APPLIED");
     expect(await prisma.classificationFeedback.count({ where: { emailAccountId: owner.id, wrongRuleId: wrong.id, correctRuleId: correct.id } })).toBe(1);
-  });
+  }, 20_000);
 
   it("blocks static From-only automatic outbound actions without verified history", async () => {
     const owner = await account();

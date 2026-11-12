@@ -38,3 +38,5 @@ Google Pub/Sub and Microsoft Graph webhook handlers verify notification credenti
 Better Auth provides configurable Google/Microsoft identity sign-in and signed sessions, with encrypted OAuth-token storage and implicit account linking disabled. A session-authenticated endpoint can link an identity to its verified mailbox after checking permissions. The sign-in/connection screen and an initial sync of up to 200 threads are implemented; full-history sync and live provider verification remain incomplete.
 
 The worker renews Gmail watches and active Microsoft subscriptions before expiration. Gmail catch-up is queued without advancing the stored history cursor. Provider responses are simulated in tests; expired subscriptions and expired Gmail history require recovery, and live renewal has not been verified.
+
+The cleanup and digest APIs accept signed-in sessions with mailbox-owner checks; local demo tokens remain limited to emulator accounts. Real-provider cleanup is tested with simulated provider responses, not live mailboxes.
