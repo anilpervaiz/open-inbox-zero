@@ -1,0 +1,24 @@
+import { afterEach, expect, it, vi } from 'vitest';
+const mocks = vi.hoisted(() => ({ principal: vi.fn(), limit: vi.fn(), list: vi.fn(), create: vi.fn(), revoke: vi.fn() }));
+vi.mock('../utils/server/prisma', () => ({ prisma: { userApiKey: { findMany: mocks.list } } }));
+vi.mock('../utils/server/workspace-auth', () => ({ workspacePrincipal: mocks.principal, workspaceRateLimit: mocks.limit }));
+vi.mock('../utils/server/api-keys', () => ({ createUserApiKey: mocks.create, revokeUserApiKey: mocks.revoke }));
+import { DELETE, GET, POST } from '../app/api/keys/route';
+afterEach(() => vi.clearAllMocks());
+const req = (method: string, value?: unknown) => new Request('https://inbox.example/api/keys', { method, headers: { origin: 'https://inbox.example', 'content-type': 'application/json' }, ...(value ? { body: JSON.stringify(value) } : {}) });
+it('limits key management to the signed-in owner and returns a new secret only at creation', async () => {
+  mocks.principal.mockResolvedValueOnce(null);
+  expect((await POST(req('POST', { name: 'assistant' }))).status).toBe(401);
+  expect(mocks.create).not.toHaveBeenCalled();
+  mocks.principal.mockResolvedValue({ kind: 'session', userId: 'owner' }); mocks.limit.mockResolvedValue(null);
+  mocks.create.mockResolvedValue({ key: { id: 'key', name: 'assistant' }, token: 'one-time-secret' });
+  const created = await POST(req('POST', { name: 'assistant' }));
+  expect(created.status).toBe(201); expect((await created.json()).token).toBe('one-time-secret');
+  expect(mocks.create).toHaveBeenCalledWith(expect.anything(), { userId: 'owner', name: 'assistant' });
+  mocks.list.mockResolvedValue([{ id: 'key', name: 'assistant', revokedAt: null }]);
+  const list = await GET(req('GET')); expect((await list.text())).not.toContain('one-time-secret');
+  expect(mocks.list).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'owner' }, select: expect.not.objectContaining({ keyHash: true }) }));
+  mocks.revoke.mockResolvedValue(false);
+  expect((await DELETE(req('DELETE', { keyId: 'other-key' }))).status).toBe(404);
+  expect(mocks.revoke).toHaveBeenCalledWith(expect.anything(), { userId: 'owner', keyId: 'other-key' });
+});

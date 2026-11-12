@@ -46,3 +46,31 @@ export function MailboxSetup({ onConnected, onCancel, providers }: { onConnected
 export function SignOutButton() {
   return <button className="text-btn" onClick={() => void authClient.signOut().then(() => { window.location.href = '/'; })}>Sign out</button>;
 }
+
+type ApiKey = { id: string; name: string; createdAt: string; expiresAt: string | null; revokedAt: string | null };
+export function ApiKeysPanel({ onClose }: { onClose: () => void }) {
+  const [keys, setKeys] = useState<ApiKey[]>([]); const [name, setName] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  async function load() {
+    const response = await fetch('/api/keys', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Access keys could not be loaded.');
+    setKeys((await response.json()).keys);
+  }
+  useEffect(() => { void load().catch(() => setError('Access keys could not be loaded.')); }, []);
+  async function change(method: 'POST' | 'DELETE', input: object) {
+    setBusy(true); setError('');
+    try {
+      const response = await fetch('/api/keys', { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
+      if (!response.ok) throw new Error('Access key change could not be completed.');
+      const result = await response.json();
+      if (method === 'POST') { setSecret(result.token); setName(''); }
+      try { await load(); } catch { setError('Change completed, but the key list could not be refreshed.'); }
+    } catch { setError('Access key change could not be completed.'); }
+    finally { setBusy(false); }
+  }
+  return <main className="setup-message"><h1>Assistant access keys</h1><p>Keys give an assistant access to your connected mailboxes. Save a new key when it appears; it cannot be shown again.</p>
+    <label>Key name <input value={name} maxLength={120} onChange={event => setName(event.target.value)} /></label>
+    <button className="primary-button" disabled={busy || !name.trim()} onClick={() => void change('POST', { name })}>Create key</button>
+    {secret && <p role="status">New key: <code>{secret}</code></p>}
+    {keys.map(key => <div key={key.id}><strong>{key.name}</strong> · {key.revokedAt ? 'Revoked' : key.expiresAt && new Date(key.expiresAt).getTime() <= Date.now() ? 'Expired' : 'Active'} {!key.revokedAt && <button className="text-btn" disabled={busy} onClick={() => void change('DELETE', { keyId: key.id })}>Revoke</button>}</div>)}
+    {error && <p role="alert">{error}</p>}<button className="secondary-button" onClick={onClose}>Back to inbox</button></main>;
+}

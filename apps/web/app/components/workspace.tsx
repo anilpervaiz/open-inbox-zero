@@ -5,7 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Command } from 'cmdk';
 import { Archive, ArrowLeft, ArrowUpRight, BarChart3, BellOff, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Command as CommandIcon, FileText, Inbox, LayoutGrid, Mail, MoreHorizontal, Plus, RotateCcw, Search, Settings2, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { MailboxSetup, SignInPanel, SignOutButton } from './account-access';
+import { ApiKeysPanel, MailboxSetup, SignInPanel, SignOutButton } from './account-access';
 
 type Message = { messageId: string; threadId: string; fromEmail: string; fromName: string | null; toEmail: string; subject: string; snippet: string; textBody: string; internalDate: string; labels: string[]; unread: boolean; archived: boolean; listUnsubscribe: string | null; listUnsubscribePost: string | null };
 type Action = { type: string; status: string; label: string | null; content: string | null; draftId: string | null };
@@ -25,7 +25,7 @@ const initials = (value: string) => value.split(/[\s@.]+/).filter(Boolean).slice
 
 export function Workspace({ token, initialView, signedIn = false, providers = { google: false, microsoft: false } }: { token: string; initialView: View; signedIn?: boolean; providers?: { google: boolean; microsoft: boolean } }) {
   const [data, setData] = useState<Data | null>(null); const [account, setAccount] = useState(''); const [view, setView] = useState<View>(initialView); const [selected, setSelected] = useState('');
-  const [setupOpen, setSetupOpen] = useState(false); const [changingRule, setChangingRule] = useState(false); const [replacementRule, setReplacementRule] = useState(''); const [sortBy, setSortBy] = useState<'sender' | 'count' | 'rate'>('count'); const [query, setQuery] = useState(''); const [palette, setPalette] = useState(false); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false); const [compose, setCompose] = useState(''); const [mobileDetail, setMobileDetail] = useState(false);
+  const [keysOpen, setKeysOpen] = useState(false); const [setupOpen, setSetupOpen] = useState(false); const [changingRule, setChangingRule] = useState(false); const [replacementRule, setReplacementRule] = useState(''); const [sortBy, setSortBy] = useState<'sender' | 'count' | 'rate'>('count'); const [query, setQuery] = useState(''); const [palette, setPalette] = useState(false); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false); const [compose, setCompose] = useState(''); const [mobileDetail, setMobileDetail] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null); const replyRef = useRef<HTMLTextAreaElement>(null); const listRef = useRef<HTMLDivElement>(null);
   const load = useCallback(async (accountId = '', clearNotice = true) => {
     const response = await fetch(`/api/workspace${accountId ? `?account=${encodeURIComponent(accountId)}` : ''}`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, cache: 'no-store' });
@@ -73,13 +73,14 @@ export function Workspace({ token, initialView, signedIn = false, providers = { 
   const selectThread = (message: Message) => { setSelected(message.threadId); setMobileDetail(true); if (message.unread) void act({ operation: 'read', threadId: message.threadId }, 'Marked as read'); };
   if (!token && !signedIn) return <SignInPanel providers={providers}/>;
   if (!data) return <main className="setup-message"><div className="spinner"/><p>{notice || 'Opening your mailbox…'}</p></main>;
+  if (keysOpen && signedIn && !token) return <ApiKeysPanel onClose={() => setKeysOpen(false)}/>;
   if (!data.account || setupOpen) return <MailboxSetup providers={providers} onCancel={data.account ? () => setSetupOpen(false) : undefined} onConnected={async (accountId) => { setSetupOpen(false); await load(accountId); setNotice('Mailbox connected. Recent mail is loading.'); }}/>;
   const title = [...navigation, ...tools].find((item) => item.id === view)?.label ?? 'Inbox';
   const counts: Partial<Record<View, number>> = { important: data.messages.filter((m) => m.unread && !m.archived && m.labels.includes('INBOX')).length, 'to-reply': new Set(data.trackers.filter((t) => t.type === 'NEEDS_REPLY').map((t) => t.threadId)).size, awaiting: new Set(data.trackers.filter((t) => t.type === 'AWAITING_REPLY').map((t) => t.threadId)).size, cold: data.cold.length };
   return <div className="app-shell">
     <aside className="sidebar"><div className="brand"><span className="brand-icon"><Mail size={17}/></span><span>open inbox<span className="brand-zero">zero</span></span><MoreHorizontal size={17}/></div>
       <label className="account-select"><span className="avatar small">{initials(data.account.email)}</span><span><small>WORKSPACE</small><strong>{data.account.email}</strong></span><ChevronDown size={15}/><select aria-label="Switch account" value={account} onChange={(event) => { setSelected(''); void load(event.target.value); }}>{data.accounts.map((a) => <option key={a.id} value={a.id}>{a.email}</option>)}</select></label>
-      {!token && <button className="secondary-button" onClick={() => setSetupOpen(true)}>Add mailbox</button>}
+      {!token && <><button className="secondary-button" onClick={() => setSetupOpen(true)}>Add mailbox</button><button className="secondary-button" onClick={() => setKeysOpen(true)}>Assistant access keys</button></>}
       <button className="search-button" onClick={() => setPalette(true)}><Search size={15}/><span>Search or jump to...</span><kbd>⌘ K</kbd></button>
       <div className="nav-label">YOUR INBOX <Plus size={14}/></div><nav aria-label="Inbox views">{navigation.map(({ id, label, icon: Icon }) => <button key={id} className={`nav-item ${view === id ? 'active' : ''}`} onClick={() => go(id)}><Icon size={16}/><span>{label}</span>{Boolean(counts[id]) && <b>{counts[id]}</b>}</button>)}</nav>
       <div className="nav-label space">WORKSPACE</div><nav aria-label="Workspace views">{tools.map(({ id, label, icon: Icon }) => <button key={id} className={`nav-item ${view === id ? 'active' : ''}`} onClick={() => go(id)}><Icon size={16}/><span>{label}</span></button>)}</nav>

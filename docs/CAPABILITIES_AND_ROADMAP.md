@@ -29,7 +29,7 @@ Each stage is expected to pass `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `
 
 Stage 5 progress: `/api/health` provides free liveness and authenticated database, configured Redis, and local emulator checks; live provider checks are not implemented. Local API burst limits are process-local; MCP uses Redis-backed limiting outside local mode; trusted client-IP identification remains outstanding.
 
-The user API-key model stores only a hash and supports expiration and owner-scoped revocation. The six MCP tools use these keys for owned emulator and connected provider accounts. Key management and live-provider MCP verification remain outstanding; configured Better Auth sessions can also authenticate MCP.
+The user API-key model stores only a hash and supports expiration and owner-scoped revocation. The six MCP tools use these keys for owned emulator and connected provider accounts. Signed-in users can create and revoke assistant keys in the workspace; live-provider MCP verification remains outstanding; configured Better Auth sessions can also authenticate MCP.
 
 The delayed worker can resolve real Gmail and Outlook accounts using encrypted, refreshable credentials. This has not been tested against live providers; OAuth sign-in and incoming-message synchronization remain incomplete.
 
