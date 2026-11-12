@@ -13,13 +13,13 @@ Snapshot: 2026-11-11, application commit `cd76041`. “Implemented” means code
 | Gmail / Microsoft adapters | Implemented, mocked tests | Live OAuth, token refresh, webhook delivery and live-account behavior remain unverified. |
 | Browser SQLite cache | Partial | [mail-sqlite](../packages/mail-sqlite/src/index.ts) provides an account-scoped FTS5 cache, with OPFS where supported; the workspace does not yet use it. |
 | Shared mail UI and CLI | Partial | [mail-ui](../packages/mail-ui/src/index.ts) supplies sanitization and display helpers. [cli](../packages/cli/src/index.ts) dispatches commands; evaluation depends on the missing Stage 6 runner and local API commands require the emulator token. The current UI lives in the web application. |
-| Real-account auth, public API security and MCP | Partial | Key-authenticated MCP tools support owned emulator accounts; real-account access and session authentication remain unimplemented. |
+| Real-account auth, public API security and MCP | Partial | Key and session authentication support owned emulator and connected provider accounts; live provider verification remains outstanding. |
 | 60-message evaluation | Not implemented | No `pnpm eval` script, benchmark report, or measured safety result exists. |
 | Deployment and release | Not implemented | Docker Compose, CI workflow, self-hosting docs, full history/bundle secret scan and fresh-clone verification remain Stage 7 work. |
 
 ## Ordered next work
 
-1. Finish **Stage 5**: account authentication and authorization, provider credentials and background execution, API hardening, provider health checks, and real-provider support for the MCP tools. Preserve the local emulator path and add tests for account isolation and abuse cases.
+1. Finish **Stage 5**: account authentication and authorization, provider credentials and background execution, API hardening, provider health checks, and live-provider verification for the MCP tools. Preserve the local emulator path and add tests for account isolation and abuse cases.
 2. Address the remaining architecture gaps: browser cache/shared packages, CLI and the production queue choice, or document and explicitly approve any deviation from the original target.
 3. Build and run **Stage 6** evaluation; report measured accuracy, VIP false archives, unauthorized sends and learned-group hits without inventing results.
 4. Complete **Stage 7** packaging, deployment documentation, CI and security checks.
@@ -29,7 +29,7 @@ Each stage is expected to pass `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `
 
 Stage 5 progress: `/api/health` provides free liveness and authenticated database, configured Redis, and local emulator checks; live provider checks are not implemented. Local API burst limits are process-local; MCP uses Redis-backed limiting outside local mode; trusted client-IP identification remains outstanding.
 
-The user API-key model stores only a hash and supports expiration and owner-scoped revocation. The six MCP tools use these keys for owned emulator accounts. Key management and real-provider MCP support remain outstanding; configured Better Auth sessions can also authenticate MCP.
+The user API-key model stores only a hash and supports expiration and owner-scoped revocation. The six MCP tools use these keys for owned emulator and connected provider accounts. Key management and live-provider MCP verification remain outstanding; configured Better Auth sessions can also authenticate MCP.
 
 The delayed worker can resolve real Gmail and Outlook accounts using encrypted, refreshable credentials. This has not been tested against live providers; OAuth sign-in and incoming-message synchronization remain incomplete.
 
