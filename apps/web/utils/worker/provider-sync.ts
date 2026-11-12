@@ -66,9 +66,9 @@ export async function syncProviderJob(input: { prisma: PrismaClient; job: Provid
         try { response = await (input.requestFetch ?? fetch)('https://gmail.googleapis.com/gmail/v1/users/me/watch', { method: 'POST', headers: { authorization: `Bearer ${access}`, 'content-type': 'application/json' }, body: JSON.stringify({ topicName: topic }), redirect: 'error', signal: AbortSignal.timeout(15_000) }); }
         catch { throw new Error('Gmail watch setup failed'); }
         if (!response.ok) throw new Error('Gmail watch setup failed');
-        const watch = z.object({ historyId: z.string().regex(/^\d+$/).max(32) }).safeParse(await response.json().catch(() => null));
-        if (!watch.success) throw new Error('Gmail watch response invalid');
-        await prisma.emailAccount.update({ where: { id: account.id }, data: { lastSyncedHistoryId: watch.data.historyId } });
+        const watch = z.object({ historyId: z.string().regex(/^\d+$/).max(32), expiration: z.string().regex(/^\d+$/).max(16) }).safeParse(await response.json().catch(() => null));
+        if (!watch.success || !Number.isSafeInteger(Number(watch.data.expiration)) || Number(watch.data.expiration) <= Date.now()) throw new Error('Gmail watch response invalid');
+        await prisma.emailAccount.update({ where: { id: account.id }, data: { lastSyncedHistoryId: watch.data.historyId, googleWatchExpiresAt: new Date(Number(watch.data.expiration)) } });
       }
       if (account.provider === 'microsoft') await ensureMicrosoftSubscription({ prisma, emailAccountId: account.id, callbackBaseUrl: process.env.BETTER_AUTH_URL, requestFetch: input.requestFetch });
       // Load a bounded initial view without automatically applying rules to old mail.

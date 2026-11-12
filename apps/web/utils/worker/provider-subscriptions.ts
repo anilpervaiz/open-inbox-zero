@@ -12,7 +12,7 @@ export async function ensureMicrosoftSubscription(input: { prisma: PrismaClient;
   const account = await input.prisma.emailAccount.findUnique({ where: { id: input.emailAccountId }, select: { provider: true } });
   if (account?.provider !== 'microsoft') throw new Error('Microsoft account unavailable');
   const now = input.now ?? Date.now;
-  const active = await input.prisma.providerSubscription.findFirst({ where: { emailAccountId: input.emailAccountId, status: 'ACTIVE', expiresAt: { gt: new Date(now() + 3600_000) } } });
+  const active = await input.prisma.providerSubscription.findFirst({ where: { emailAccountId: input.emailAccountId, status: 'ACTIVE', expiresAt: { gt: new Date(now()) } } });
   if (active) return active;
   const pending = await input.prisma.providerSubscription.findFirst({ where: { emailAccountId: input.emailAccountId, status: { in: ['PENDING', 'UNCERTAIN'] } } });
   if (pending) throw new Error('Subscription setup requires reconciliation');

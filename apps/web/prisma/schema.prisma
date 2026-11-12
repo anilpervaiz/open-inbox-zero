@@ -191,6 +191,7 @@ model EmailAccount {
   encryptedRefreshToken String?
   accessTokenExpiresAt  DateTime?
   lastSyncedHistoryId  String?
+  googleWatchExpiresAt DateTime?
   initialSyncStatus    InitialSyncStatus    @default(NOT_STARTED)
   about                String?              // User profile context for AI drafting
   signature            String?

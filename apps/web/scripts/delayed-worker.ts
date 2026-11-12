@@ -3,6 +3,7 @@ import type { EmailProvider } from "../utils/mail-provider/types";
 import { EmulatedMailProvider } from "../utils/mail-provider/emulated-provider";
 import { resolveMailProvider } from "../utils/mail-provider/provider-resolver";
 import { createProviderSyncWorker } from "../utils/worker/provider-sync-worker";
+import { maintainProviderSubscriptions } from "../utils/worker/provider-maintenance";
 import { processNextReplyLabelSync } from "../utils/reply-tracker/label-sync";
 import { executeScheduledAction } from "../utils/ai/choose-rule/execute";
 import { processNextDelayedAction, processPendingReplyTracking, processPendingSenderLearning, type ProviderResolver } from "../utils/worker/delayed-actions";
@@ -38,6 +39,20 @@ export async function runDelayedWorker(input: { prisma: PrismaClient; resolvePro
   }
 }
 
+/** Renewal runs separately so slow providers cannot stall delayed actions. */
+export async function runSubscriptionMaintenance(input: { prisma: PrismaClient; signal: AbortSignal; pollMs?: number }): Promise<void> {
+  while (!input.signal.aborted) {
+    try { await maintainProviderSubscriptions({ prisma: input.prisma, topic: process.env.GOOGLE_PUBSUB_TOPIC, signal: input.signal }); }
+    catch { if (!input.signal.aborted) console.error("Provider subscription maintenance failed"); }
+    if (!input.signal.aborted) await new Promise<void>((resolve) => {
+      const finish = () => { clearTimeout(timer); input.signal.removeEventListener("abort", finish); resolve(); };
+      const timer = setTimeout(finish, input.pollMs ?? 30 * 60_000);
+      input.signal.addEventListener("abort", finish, { once: true });
+      if (input.signal.aborted) finish();
+    });
+  }
+}
+
 export async function main(): Promise<void> {
   const prisma = new PrismaClient();
   const syncWorker = process.env.REDIS_URL ? createProviderSyncWorker(prisma, process.env.REDIS_URL) : undefined;
@@ -45,7 +60,7 @@ export async function main(): Promise<void> {
   const stop = () => abort.abort();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
-  try { await runDelayedWorker({ prisma, resolveProvider: (accountId) => resolveMailProvider(prisma, accountId), signal: abort.signal }); }
+  try { await Promise.all([runDelayedWorker({ prisma, resolveProvider: (accountId) => resolveMailProvider(prisma, accountId), signal: abort.signal }), ...(process.env.REDIS_URL ? [runSubscriptionMaintenance({ prisma, signal: abort.signal })] : [])]); }
   finally {
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
