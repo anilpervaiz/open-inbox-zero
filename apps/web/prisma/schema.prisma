@@ -184,7 +184,7 @@ model EmailAccount {
   userId               String
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   email                String               @unique
-  provider             String               // "google" | "microsoft" | "emulator"
+  provider             String               // "google" | "microsoft" | "emulator" | "selfhosted"
   authAccountId        String?              @unique
   authAccount          AuthAccount?        @relation(fields: [authAccountId], references: [id], onDelete: Restrict)
   encryptedAccessToken String?
@@ -212,8 +212,18 @@ model EmailAccount {
   feedbacks            ClassificationFeedback[]
   providerSubscriptions ProviderSubscription[]
   emailMessages        EmailMessage[]
+  selfHostedCredential SelfHostedCredential?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
+}
+
+// Mailbox passwords are encrypted separately from OAuth tokens. The encrypted
+// payload binds the secret to its account, owner and mailbox address.
+model SelfHostedCredential {
+  emailAccountId String       @id
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  encryptedSecret String
+  updatedAt      DateTime     @updatedAt
 }
 
 model ProviderSubscription {

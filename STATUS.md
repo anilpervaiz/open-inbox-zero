@@ -20,7 +20,7 @@ Start the local seeded demo with `pnpm install` followed by `pnpm local:start`. 
 
 ## Remaining work
 
-An experimental, separate Postfix/Dovecot mail-server Compose package is available in [deploy/mailserver](deploy/mailserver/README.md). Its configuration has been validated without starting a server; it has not been tested for live delivery, security or restoration, and it is not connected to the workspace. IMAP/SMTP integration, private password sign-in and invitations remain to be built.
+An experimental, separate Postfix/Dovecot mail-server Compose package is available in [deploy/mailserver](deploy/mailserver/README.md). Its configuration has been validated without starting a server; it has not been tested for live delivery, security or restoration, and it is not connected to the workspace. A database record and owner-scoped encrypted credential helpers now provide a foundation for self-hosted accounts, but there is no user-facing provisioning path. IMAP/SMTP integration, private password sign-in and invitations remain to be built. The new schema needs a reviewed production migration before existing deployments can use it; local schema push is not a production migration.
 
 Pilot outbound safety is enabled by default and enforced for both Compose application services: rule-driven sends and forwards are skipped, including delayed jobs scheduled before pilot mode was enabled. Drafts and reversible actions remain available. A non-Compose operator can explicitly set `PILOT_MODE=false` to opt out. This control does not by itself establish pilot readiness; live-provider testing and the recovery and security work below remain outstanding.
 
