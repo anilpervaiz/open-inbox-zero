@@ -66,7 +66,7 @@ export function Workspace({ token, initialView, signedIn = false, providers = { 
       if (event.key === '/') { event.preventDefault(); searchRef.current?.focus(); return; }
       if (event.key === 'j' || event.key === 'ArrowDown' || event.key === 'k' || event.key === 'ArrowUp') { event.preventDefault(); const index = Math.max(0, threads.findIndex((item) => item.threadId === selectedMessage?.threadId)); const next = Math.max(0, Math.min(threads.length - 1, index + (event.key === 'j' || event.key === 'ArrowDown' ? 1 : -1))); if (threads[next]) { setSelected(threads[next].threadId); virtualizer.scrollToIndex(next); } }
       if (event.key.toLowerCase() === 'e' && selectedMessage) void act({ operation: 'archive', threadId: selectedMessage.threadId }, 'Thread archived');
-      if (event.key.toLowerCase() === 'r') replyRef.current?.focus();
+      if (event.key.toLowerCase() === 'r' && replyRef.current) { event.preventDefault(); replyRef.current.focus(); }
       if (event.key.toLowerCase() === 'u' && trace) void act({ operation: 'undo', executionId: trace.id }, 'Rule action undone');
     }; window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [threads, selectedMessage, trace, act, virtualizer]);
