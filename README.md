@@ -4,6 +4,8 @@ Open Inbox Zero is an MIT-licensed email assistant and split-inbox application. 
 
 **Project status:** the local emulator and automated tests run, but this project has not completed its full architecture/security audit. Real Google and Microsoft sign-in, notifications, and end-to-end mailbox behavior have not been verified against live accounts. Review [STATUS.md](STATUS.md) before using it with sensitive mail.
 
+An experimental [self-hosted mail server package](deploy/mailserver/README.md) is available separately. It is not yet connected to this workspace or verified for real mail.
+
 ## Local demo
 
 Requirements: Node.js 22 or newer and pnpm 11.17.0. The initial dependency installation needs network access.

@@ -1,0 +1,22 @@
+# Self-hosted mail server (experimental)
+
+This separate stack supplies Postfix, Dovecot and Rspamd. It does **not** yet connect mailboxes to the Open Inbox Zero workspace: IMAP/SMTP integration, password sign-in, invitations, synchronization and manual sending are still under development. Do not invite users or depend on this configuration for real mail until its security, delivery and recovery tests have passed.
+
+The service is intended for a Linux host with Docker, a fixed public IP address and a domain you control. SMTP port 25 must be reachable both inbound and outbound for direct delivery. Ports 465, 587 and 993 must also be reachable by authorized mail clients. Your hosting provider must support an appropriate reverse DNS (PTR) record. Configure host-level firewalling, monitoring and access controls; exposing a port is not a substitute for them.
+
+## Configuration and startup
+
+1. Choose a unique Compose project name and use it consistently so the volumes are isolated. Install a publicly trusted certificate for the mail hostname and arrange renewal. Supply an absolute directory containing readable `fullchain.pem` and `privkey.pem`; symlinks must resolve within the mounted directory. Protect the key on the host. Renewed files must remain available inside the container; verify reload after renewal.
+2. Set `MAIL_HOSTNAME` to the fully qualified mail server name, for example `mail.example.com`, and `MAIL_TLS_DIR` to the certificate directory. Export these variables in the operator's shell or provide them through a private deployment mechanism; never commit real secrets.
+3. Validate the configuration with `docker compose -p oiz-mail -f deploy/mailserver/compose.yaml config --quiet`, then start with `docker compose -p oiz-mail -f deploy/mailserver/compose.yaml up -d`. Review startup logs with `docker compose -p oiz-mail -f deploy/mailserver/compose.yaml logs mailserver` without sharing secrets or mailbox contents.
+4. Create each mailbox interactively using `docker compose -p oiz-mail -f deploy/mailserver/compose.yaml exec mailserver setup email add user@example.com`. Do not place passwords in commands or shell history. Create any necessary aliases using the upstream setup tool. There is no public registration.
+
+Set an A/AAAA record for the mail hostname, an MX record for the domain pointing to that hostname, and a PTR record for the public sending IP. Configure SPF, DKIM and DMARC for the actual sending host; publish DKIM only after generating and verifying the correct key. See the [upstream DNS guidance](https://docker-mailserver.github.io/docker-mailserver/latest/config/best-practices/dkim_dmarc_spf/). Validate DNS and delivery independently before sending real mail. DNS and reputation do not guarantee acceptance by recipients.
+
+## Security and operations
+
+The configuration forces authenticated submission rather than trusting the Docker network, enables sender spoof protection, and enables Rspamd and Fail2Ban. This is a starting configuration, not evidence that open-relay, spam, fail2ban or rate-limit tests have passed. Confirm Fail2Ban can enforce bans on the deployed host and that external unauthenticated relay attempts are rejected; containers and host firewall arrangements differ. Monitor the mail queue, failed logins, certificate expiry, disk usage and delivery failures. Limit administrative access and protect logs, which may contain sensitive metadata.
+
+Back up the mail data, mail state and mail configuration volumes, as well as the workspace PostgreSQL database and its encryption key. The configuration volume contains password hashes and DKIM keys; encrypt backups, restrict access and store the encryption key separately. Take a consistent backup with the mail server stopped or using a proven snapshot procedure. A backup is not verified until it has been restored on an isolated host and mailbox access and delivery have been checked. No restore drill has been run for this stack yet. Never run `docker compose down -v` against production volumes.
+
+The image is pinned to a release; review the upstream release notes and security updates before upgrading, update the pin deliberately, and test rollback and restoration first. See [Docker Mailserver](https://docker-mailserver.github.io/docker-mailserver/latest/) for component configuration and account administration. The image and its components retain their own licenses.

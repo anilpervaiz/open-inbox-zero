@@ -1,0 +1,38 @@
+# Separate from the workspace stack. Requires a publicly trusted certificate.
+services:
+  mailserver:
+    image: ghcr.io/docker-mailserver/docker-mailserver:17.0.0
+    hostname: ${MAIL_HOSTNAME:?Set MAIL_HOSTNAME to the mail server FQDN}
+    ports:
+      - "25:25"
+      - "465:465"
+      - "587:587"
+      - "993:993"
+    environment:
+      ACCOUNT_PROVISIONER: FILE
+      SSL_TYPE: manual
+      SSL_CERT_PATH: /etc/mail-certs/fullchain.pem
+      SSL_KEY_PATH: /etc/mail-certs/privkey.pem
+      PERMIT_DOCKER: none
+      SPOOF_PROTECTION: "1"
+      ENABLE_IMAP: "1"
+      ENABLE_POP3: "0"
+      ENABLE_RSPAMD: "1"
+      ENABLE_FAIL2BAN: "1"
+      ENABLE_UPDATE_CHECK: "0"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - mail_data:/var/mail
+      - mail_state:/var/mail-state
+      - mail_logs:/var/log/mail
+      - mail_config:/tmp/docker-mailserver
+      - ${MAIL_TLS_DIR:?Set MAIL_TLS_DIR to the certificate directory}:/etc/mail-certs:ro
+    restart: unless-stopped
+
+volumes:
+  mail_data:
+  mail_state:
+  mail_logs:
+  mail_config:
