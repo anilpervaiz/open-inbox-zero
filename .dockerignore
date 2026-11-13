@@ -1,0 +1,11 @@
+.git
+.local-data
+.pnpm-store
+node_modules
+**/node_modules
+**/.next
+**/.turbo
+graphify-out
+.env
+.env.*
+!.env.example

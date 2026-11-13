@@ -1,6 +1,6 @@
 # Capability and stage map
 
-Snapshot: 2026-11-12. “Implemented” means code is present; it does not imply the full audit checklist, live service integration, or production readiness.
+Snapshot: 2026-11-13. “Implemented” means code is present; it does not imply the full audit checklist, live service integration, or production readiness.
 
 | Capability | Current state | Evidence / limitation |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Snapshot: 2026-11-12. “Implemented” means code is present; it does not imply
 | Shared mail UI and CLI | Partial | [mail-ui](../packages/mail-ui/src/index.ts) supplies sanitization and display helpers. [cli](../packages/cli/src/index.ts) dispatches commands; evaluation invokes the Stage 6 runner and local API commands require the emulator token. The current UI lives in the web application. |
 | Real-account auth, public API security and MCP | Partial | Key and session authentication support owned emulator and connected provider accounts; live provider verification remains outstanding. |
 | 60-message evaluation | Implemented locally | `pnpm eval` runs synthetic cases with the deterministic emulator and records a report; it does not establish live-provider or unseen-mail performance. |
-| Deployment and release | Not implemented | Docker Compose, CI workflow, self-hosting docs, full history/bundle secret scan and fresh-clone verification remain Stage 7 work. |
+| Deployment and release | Partial | Docker Compose, CI, and release docs are present; An isolated Docker build and startup smoke test passed and history/bundle scans found no matches; hosted CI, live-provider and fresh-clone verification remain outstanding. |
 
 ## Ordered next work
 

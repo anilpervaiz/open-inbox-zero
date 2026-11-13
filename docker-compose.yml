@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: inbox
+      POSTGRES_DB: inbox
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inbox -d inbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  migrate:
+    image: open-inbox-zero:local
+    build: .
+    environment:
+      DATABASE_URL: postgresql://inbox:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/inbox?schema=public
+    command: ["pnpm", "--filter", "@open-inbox-zero/web", "exec", "prisma", "db", "push", "--skip-generate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+  web:
+    image: open-inbox-zero:local
+    build: .
+    env_file: .env
+    environment: &app_environment
+      DATABASE_URL: postgresql://inbox:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/inbox?schema=public
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+  worker:
+    image: open-inbox-zero:local
+    build: .
+    env_file: .env
+    environment: *app_environment
+    command: ["pnpm", "--filter", "@open-inbox-zero/web", "exec", "tsx", "../worker/src/index.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres_data:
+  redis_data:

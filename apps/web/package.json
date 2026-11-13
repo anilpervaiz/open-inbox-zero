@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=2",
     "local:start": "tsx scripts/local-dev.ts",
     "postinstall": "prisma generate",
     "eval": "tsx scripts/eval.ts"
