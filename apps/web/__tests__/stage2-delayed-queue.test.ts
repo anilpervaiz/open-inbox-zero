@@ -96,6 +96,18 @@ it("claims due work once, recovers only unstarted leases, and never retries unce
       await prisma.emailMessage.create({ data: { emailAccountId: "account", threadId: id, messageId: id, fromEmail: "person@outside.test", toEmail: "demo@example.com", subject: "hello", snippet: "hi", textBody: "hi", labels: ["INBOX"], internalDate: new Date() } });
     }
     const emulator = new EmulatedMailProvider(prisma, "account");
+    await prisma.emailMessage.create({ data: { emailAccountId: "account", threadId: "pilot-delayed", messageId: "pilot-delayed", fromEmail: "person@outside.test", toEmail: "demo@example.com", subject: "hello", snippet: "hi", textBody: "hi", labels: ["INBOX"], internalDate: new Date() } });
+    const outbound = await prisma.rule.create({ data: { emailAccountId: "account", name: "Delayed send", actions: { create: { type: "SEND_EMAIL", to: "person@outside.test", autoSend: true, delayMinutes: 1 } } }, include: { actions: true } });
+    vi.stubEnv("PILOT_MODE", "false");
+    const oldJob = await executeAct({ prisma, provider: emulator, emailAccountId: "account", message: await emulator.getMessage("pilot-delayed"), rule: outbound, actions: outbound.actions, matchReasons: [{ type: "STATIC", detail: "subject", matchedFields: ["subject"] }], selectionMetadata: { stage: "STATIC", ruleName: outbound.name }, hasVerifiedSenderReplyHistory: false });
+    expect(oldJob.status).toBe("PENDING");
+    await prisma.delayedAction.update({ where: { executedActionId: oldJob.actionItems[0].id }, data: { dueAt: new Date(Date.now() - 1000) } });
+    vi.stubEnv("PILOT_MODE", "true");
+    const sendSpy = vi.spyOn(emulator, "sendEmail");
+    await processNextDelayedAction({ prisma, resolveProvider: async () => emulator, execute: executeScheduledAction });
+    expect((await prisma.executedAction.findUniqueOrThrow({ where: { id: oldJob.actionItems[0].id } })).status).toBe("SKIPPED");
+    expect(sendSpy).not.toHaveBeenCalled();
+    sendSpy.mockRestore();
     const schedule = async (id: string) => executeAct({ prisma: prisma!, provider: emulator, emailAccountId: "account", message: await emulator.getMessage(id), rule, actions: rule.actions, matchReasons: [{ type: "STATIC", detail: "subject", matchedFields: ["subject"] }], selectionMetadata: { stage: "STATIC", ruleName: rule.name }, hasVerifiedSenderReplyHistory: false });
     const scheduled = await schedule("real");
     expect(scheduled.status).toBe("PENDING");
@@ -170,6 +182,7 @@ it("claims due work once, recovers only unstarted leases, and never retries unce
       await worker;
     }
   } finally {
+    vi.unstubAllEnvs();
     await prisma?.$disconnect();
     if (started) await database.stop();
     await rm(dir, { recursive: true, force: true });

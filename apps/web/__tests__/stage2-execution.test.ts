@@ -34,6 +34,7 @@ test("static sender spoof and protected-domain guards fail closed", () => {
 });
 
 test("persists actions before provider calls, scopes undo, and blocks spoofed sends and VIP archives", async () => {
+  vi.stubEnv("PILOT_MODE", "false");
   const dir = await mkdtemp(join(tmpdir(), "open-inbox-zero-execute-"));
   const dbPort = await port();
   const database = new EmbeddedPostgres({ databaseDir: join(dir, "postgres"), user: "postgres", password: "temporary-test-password", port: dbPort, persistent: true, authMethod: "scram-sha-256", postgresFlags: ["-c", "listen_addresses=127.0.0.1"], autoRehydrateSymlinks: true, onLog: () => undefined });
@@ -207,7 +208,19 @@ test("persists actions before provider calls, scopes undo, and blocks spoofed se
     createDraft.mockRestore();
     const draft = await executeAct({ ...base, message: await provider.getMessage("draft"), rule: draftRule, actions: draftRule.actions, selectionMetadata: { stage: "AI", ruleName: draftRule.name } });
     expect(draft.actionItems[0]).toMatchObject({ type: "DRAFT_EMAIL", status: "COMPLETED" }); expect(send).toHaveBeenCalledTimes(1);
+    vi.stubEnv("PILOT_MODE", "true");
+    const forwardSpy = vi.spyOn(provider, "forwardEmail");
+    for (const type of ["SEND_EMAIL", "REPLY", "FORWARD"] as const) {
+      const id = `pilot-${type}`;
+      await prisma.emailMessage.create({ data: { emailAccountId: "one", threadId: id, messageId: id, fromEmail: "safe@external.test", toEmail: "me@example.com", subject: "Pilot", snippet: "Hi", textBody: "Hi", internalDate: new Date(), labels: ["INBOX"] } });
+      const pilotRule = await prisma.rule.create({ data: { emailAccountId: "one", name: id, actions: { create: [{ type, autoSend: true, to: "recipient@example.net" }] } }, include: { actions: true } });
+      const result = await executeAct({ ...base, message: await provider.getMessage(id), rule: pilotRule, actions: pilotRule.actions, selectionMetadata: { stage: "STATIC", ruleName: id }, matchReasons: [{ type: "STATIC", detail: "subject", matchedFields: ["subject"] }] });
+      expect(result.actionItems[0]).toMatchObject({ status: "SKIPPED", error: "Automatic sending and forwarding are disabled in pilot mode" });
+    }
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(forwardSpy).not.toHaveBeenCalled();
   } finally {
+    vi.unstubAllEnvs();
     await prisma?.$disconnect();
     if (started) await database.stop();
     await rm(dir, { recursive: true, force: true });

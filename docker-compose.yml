@@ -41,6 +41,7 @@ services:
     environment: &app_environment
       DATABASE_URL: postgresql://inbox:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/inbox?schema=public
       REDIS_URL: redis://redis:6379
+      PILOT_MODE: "true"
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:

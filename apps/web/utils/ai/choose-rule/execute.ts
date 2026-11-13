@@ -41,6 +41,8 @@ function skipReason(source: Action, effectiveType: ActionType, input: { automate
   if (["ARCHIVE", "MARK_SPAM"].includes(effectiveType) && input.protectArchive) return "Protected sender";
   if (source.autoSend && input.blocked.includes(source.type)) return "Unverified static sender";
   if (source.autoSend && ["AI", "GROUP", "SYSTEM", "MANUAL"].includes(input.stage) && !input.verifiedHistory && ["REPLY", "SEND_EMAIL", "FORWARD"].includes(source.type)) return "Selected outbound requires verified sender history";
+  // Default to the restricted pilot policy unless an operator explicitly opts out.
+  if (process.env.PILOT_MODE !== "false" && ["REPLY", "SEND_EMAIL", "FORWARD"].includes(effectiveType)) return "Automatic sending and forwarding are disabled in pilot mode";
   return undefined;
 }
 
@@ -175,6 +177,7 @@ async function executeActUnlocked(input: ExecuteActInput) {
 async function executeActionEffect(input: { prisma: PrismaClient; provider: EmailProvider; emailAccountId: string; message: ParsedMessage; sender: string; action: ExecutedAction; source: Action; executionId: string; delayedJobId?: string }): Promise<boolean> {
   const { prisma, provider, emailAccountId, message, sender, action, source, executionId, delayedJobId } = input;
     try {
+      if (process.env.PILOT_MODE !== "false" && ["REPLY", "SEND_EMAIL", "FORWARD"].includes(action.type)) throw new Error("Automatic sending and forwarding are disabled in pilot mode");
       if (action.type === "TRACK_THREAD") {
         await prisma.$transaction(async (tx) => {
           const existingTracker = await tx.threadTracker.findUnique({ where: { emailAccountId_threadId_messageId: { emailAccountId, threadId: message.threadId, messageId: message.id } } });
