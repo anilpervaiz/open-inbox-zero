@@ -13,11 +13,11 @@ This is an evidence map for [ANTIGRAVITY_AUDIT_CHECKLIST.md](../ANTIGRAVITY_AUDI
 | 21 | Two consistent AI classifications create an AI_LEARNED group item, but a hybrid group + natural-language AND rule continues to invoke AI. This follows the user's later explicit requirement and conflicts with the checklist's unconditional third-message bypass. |
 | 29–35 | Prompt-injection, spoof, protected-sender, unsubscribe validation and health tests exist; the offline evaluation also records zero adversarial outbound sends for its synthetic cases. |
 | 36 | The limiter and retry headers are tested; an independent HTTP burst against each named production endpoint has not been completed. |
-| 37 | A deliberate mutation test has not yet been run. |
+| 37 | A temporary clone was mutated to disable the static-From guard; the targeted integration test failed, then passed after the guard was restored. The entire `pnpm test` command was not run with the mutation. |
 | 38–40 | Reply state, cleanup, DKIM-verified unsubscribe and digest have local PostgreSQL and simulated-provider tests. Live mail delivery has not been tested. |
-| 41–45 | The local desktop and mobile preview have been inspected, but the complete checklist of browser, keyboard, console and accessibility checks has not yet been independently verified. |
+| 41–45 | The fresh-clone demo was inspected at 1280×900 and 375×812; inbox navigation, J and command-menu keys, rules, newsletter stats, analytics, a visible keyboard focus outline, no mobile horizontal overflow, and no new console errors were observed. Group badges, every keyboard shortcut, all newsletter actions, and the full accessibility audit remain unverified. |
 | 46 | All six MCP tools are exercised against the seeded emulator in the local database integration test; real-provider MCP behavior is simulated. |
 | 47 | `pnpm eval` runs 60 synthetic cases in an isolated temporary database. The recorded run has zero VIP archives and zero sends. Results use the deterministic emulator and do not measure unseen mail or live models. |
-| 48 | A clean-clone installation and startup check remains to be completed. |
+| 48 | A clean clone installed from a warm offline cache and opened the demo without mail or model credentials after applying startup fixes in the clone. The fixes need to be committed and verified from a new clean clone. |
 
 The supported local demo and its tests do not establish that the application is ready for production use. Provider setup, history recovery, trusted client IP handling, and full-history sync retain limitations described in [STATUS.md](../STATUS.md).

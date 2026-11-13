@@ -3,14 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "prisma generate && next dev --webpack",
     "build": "next build --webpack",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --maxWorkers=2",
-    "local:start": "tsx scripts/local-dev.ts",
+    "local:start": "prisma generate && tsx scripts/local-dev.ts",
     "postinstall": "prisma generate",
-    "eval": "tsx scripts/eval.ts"
+    "eval": "prisma generate && tsx scripts/eval.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.99",

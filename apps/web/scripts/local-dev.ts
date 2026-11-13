@@ -185,7 +185,7 @@ async function main(): Promise<void> {
       worker.once("exit", (code, signal) => {
         if (!shuttingDown) reject(new Error(`Delayed worker exited with ${signal ?? code}`));
       });
-      app = spawn("pnpm", ["exec", "next", "dev", "--hostname", "127.0.0.1"], { cwd: webDir, env, stdio: "inherit" });
+      app = spawn("pnpm", ["exec", "next", "dev", "--webpack", "--hostname", "127.0.0.1"], { cwd: webDir, env, stdio: "inherit" });
       app.once("error", reject);
       app.once("exit", (code, signal) => {
         if (shuttingDown || code === 0) resolveApp();

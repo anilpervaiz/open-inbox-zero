@@ -7,10 +7,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "turbo run build",
+    "build": "pnpm --filter @open-inbox-zero/web exec prisma generate && turbo run build",
     "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
+    "typecheck": "pnpm --filter @open-inbox-zero/web exec prisma generate && turbo run typecheck",
+    "test": "pnpm --filter @open-inbox-zero/web exec prisma generate && turbo run test",
     "local:start": "pnpm --filter @open-inbox-zero/web local:start",
     "cli": "pnpm --filter @open-inbox-zero/web exec tsx ../../packages/cli/src/main.ts",
     "eval": "pnpm --filter @open-inbox-zero/web eval"
