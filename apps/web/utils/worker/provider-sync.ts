@@ -71,9 +71,8 @@ export async function syncProviderJob(input: { prisma: PrismaClient; job: Provid
         await prisma.emailAccount.update({ where: { id: account.id }, data: { lastSyncedHistoryId: watch.data.historyId, googleWatchExpiresAt: new Date(Number(watch.data.expiration)) } });
       }
       if (account.provider === 'microsoft') await ensureMicrosoftSubscription({ prisma, emailAccountId: account.id, callbackBaseUrl: process.env.BETTER_AUTH_URL, requestFetch: input.requestFetch });
-      // Load a bounded initial view without automatically applying rules to old mail.
-      const { threadIds } = await provider.listThreads({ maxResults: 200 });
-      for (const threadId of threadIds) {
+      // Snapshot all available threads without applying rules to old mail.
+      for await (const threadId of provider.iterateThreadIds()) {
         const thread = await provider.getThread(threadId);
         if (thread.id !== threadId || thread.messages.some(message => message.threadId !== threadId)) throw new Error('Provider thread mismatch');
         for (const message of thread.messages) await cacheProviderMessage(prisma, account.id, message);

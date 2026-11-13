@@ -62,6 +62,11 @@ export class EmulatedMailProvider implements EmailProvider {
     return { threadIds: options.maxResults === undefined ? ids : ids.slice(0, Math.max(0, options.maxResults)) };
   }
 
+  async *iterateThreadIds(): AsyncGenerator<string> {
+    const { threadIds } = await this.listThreads({});
+    yield* threadIds;
+  }
+
   async getThread(threadId: string): Promise<{ id: string; messages: ParsedMessage[] }> {
     return { id: threadId, messages: (await this.messages(threadId)).map(parseMessage) };
   }

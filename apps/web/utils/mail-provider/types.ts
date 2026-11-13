@@ -33,6 +33,8 @@ export interface EmailProvider {
   /** The database account whose credentials and mailbox back this instance. */
   readonly emailAccountId: string;
   listThreads(options: { query?: string; labelIds?: string[]; maxResults?: number }): Promise<{ threadIds: string[] }>;
+  /** Stream the mailbox snapshot without imposing the interactive list limit. */
+  iterateThreadIds(): AsyncIterable<string>;
   getThread(threadId: string): Promise<{ id: string; messages: ParsedMessage[] }>;
   getMessage(messageId: string): Promise<ParsedMessage>;
   /** Exact provider MIME bytes; callers must verify authenticity independently. */

@@ -110,6 +110,18 @@ export class GmailProvider implements EmailProvider {
     return { threadIds: threadIds.slice(0, limit) };
   }
 
+  async *iterateThreadIds(): AsyncGenerator<string> {
+    let pageToken: string | undefined;
+    const seenTokens = new Set<string>();
+    do {
+      const { data } = await safeCall(() => this.gmail.users.threads.list({ userId: "me", includeSpamTrash: true, maxResults: 500, pageToken }));
+      for (const thread of data.threads ?? []) if (thread.id) yield thread.id;
+      pageToken = data.nextPageToken ?? undefined;
+      if (pageToken && seenTokens.has(pageToken)) throw new Error("Gmail returned a repeated page token");
+      if (pageToken) seenTokens.add(pageToken);
+    } while (pageToken);
+  }
+
   async getThread(threadId: string): Promise<{ id: string; messages: ParsedMessage[] }> {
     const { data } = await safeCall(() => this.gmail.users.threads.get({ userId: "me", id: threadId, format: "full" }));
     return { id: required(data.id, "thread id"), messages: (data.messages ?? []).map(parseMessage) };

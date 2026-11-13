@@ -9,6 +9,19 @@ function action(type: ExecutedAction["type"], undoSnapshot: unknown, extra: Part
 }
 
 describe("Gmail provider", () => {
+  it("streams all Gmail pages and rejects a repeated page token", async () => {
+    const list = vi.fn(async ({ pageToken }: { pageToken?: string }) => ({ data: pageToken
+      ? { threads: [{ id: "second" }], nextPageToken: undefined }
+      : { threads: [{ id: "first" }], nextPageToken: "next" } }));
+    const provider = new GmailProvider({ users: { threads: { list } } } as unknown as gmail_v1.Gmail, "account");
+    const result: string[] = [];
+    for await (const id of provider.iterateThreadIds()) result.push(id);
+    expect(result).toEqual(["first", "second"]);
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ includeSpamTrash: true }));
+    list.mockImplementation(async () => ({ data: { threads: [], nextPageToken: "loop" } }));
+    await expect(async () => { for await (const id of provider.iterateThreadIds()) void id; }).rejects.toThrow("repeated page token");
+  });
   it("requires and exposes the account bound to the Gmail client", () => {
     const api = {} as gmail_v1.Gmail;
     expect(new GmailProvider(api, "gmail-account").emailAccountId).toBe("gmail-account");
@@ -88,6 +101,18 @@ describe("Gmail provider", () => {
 });
 
 describe("Outlook provider", () => {
+  it("streams Graph pages once per conversation and rejects repeated pages", async () => {
+    const next = "https://graph.microsoft.com/v1.0/me/messages?$skiptoken=next";
+    const request = vi.fn(async (input: RequestInfo | URL) => new URL(String(input)).searchParams.has("$skiptoken")
+      ? Response.json({ value: [{ conversationId: "first" }, { conversationId: "second" }] })
+      : Response.json({ value: [{ conversationId: "first" }], "@odata.nextLink": next }));
+    const provider = new OutlookProvider(async () => "token", "account", request as typeof fetch);
+    const result: string[] = [];
+    for await (const id of provider.iterateThreadIds()) result.push(id);
+    expect(result).toEqual(["first", "second"]);
+    request.mockImplementation(async () => Response.json({ value: [], "@odata.nextLink": next }));
+    await expect(async () => { for await (const id of provider.iterateThreadIds()) void id; }).rejects.toThrow("repeated page");
+  });
   it("requires and exposes the account bound to its credentials", () => {
     const token = vi.fn(async () => "token");
     expect(new OutlookProvider(token, "outlook-account").emailAccountId).toBe("outlook-account");

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T07:09:52.820Z",
+  "generatedAt": "2026-11-13T08:17:53.208Z",
   "adapter": "deterministic emulator",
   "limitations": [
     "Synthetic fixtures do not measure live-provider or external-model performance.",

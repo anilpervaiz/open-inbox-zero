@@ -173,6 +173,12 @@ test("seeds a real PostgreSQL database once without resetting user changes", asy
     await syncProviderJob(initialSync);
     expect((await prisma.emailAccount.findUniqueOrThrow({ where: { id: remote.id } })).initialSyncStatus).toBe("COMPLETED");
     expect(await prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId: remote.id, messageId: oldMessage.id } } })).not.toBeNull();
+    const threadIds = Array.from({ length: 205 }, (_, index) => `historical-thread-${index}`);
+    vi.mocked(fakeProvider.listThreads).mockResolvedValueOnce({ threadIds });
+    vi.mocked(fakeProvider.getThread).mockImplementation(async (threadId) => ({ id: threadId, messages: [{ ...oldMessage, id: `message-${threadId}`, threadId }] }));
+    await syncProviderJob(initialSync);
+    expect(await prisma.emailMessage.findUnique({ where: { emailAccountId_messageId: { emailAccountId: remote.id, messageId: `message-${threadIds[204]}` } } })).not.toBeNull();
+    vi.mocked(fakeProvider.getThread).mockResolvedValue({ id: oldMessage.threadId, messages: [oldMessage] });
     await syncProviderJob({ prisma, job: { provider: "refresh", emailAccountId: remote.id, threadId: oldMessage.threadId }, resolveProvider: async () => fakeProvider });
     expect(await prisma.executedRule.count({ where: { emailAccountId: remote.id, messageId: oldMessage.id } })).toBe(0);
     const fetchMessage = vi.spyOn(fakeProvider, "getMessage").mockRejectedValueOnce(new Error("provider unavailable")).mockResolvedValue(parsed);

@@ -171,6 +171,24 @@ export class OutlookProvider implements EmailProvider {
     return { threadIds: [...ids] };
   }
 
+  async *iterateThreadIds(): AsyncGenerator<string> {
+    let next: string | undefined = `/me/messages?${new URLSearchParams({ "$select": "conversationId", "$top": "100" })}`;
+    const seenPages = new Set<string>();
+    const seenThreads = new Set<string>();
+    while (next) {
+      if (seenPages.has(next)) throw new Error("Microsoft Graph returned a repeated page");
+      seenPages.add(next);
+      const page: Page<GraphMessage> = await this.request<Page<GraphMessage>>(next);
+      for (const message of page.value) {
+        if (message.conversationId && !seenThreads.has(message.conversationId)) {
+          seenThreads.add(message.conversationId);
+          yield message.conversationId;
+        }
+      }
+      next = page["@odata.nextLink"];
+    }
+  }
+
   async getThread(threadId: string): Promise<{ id: string; messages: ParsedMessage[] }> {
     const messages = await this.conversation(threadId);
     return { id: threadId, messages: await Promise.all(messages.map((message) => this.parse(message))) };

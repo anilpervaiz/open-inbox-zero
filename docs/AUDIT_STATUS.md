@@ -20,4 +20,4 @@ This is an evidence map for [ANTIGRAVITY_AUDIT_CHECKLIST.md](../ANTIGRAVITY_AUDI
 | 47 | `pnpm eval` runs 60 synthetic cases in an isolated temporary database. The recorded run has zero VIP archives and zero sends. Results use the deterministic emulator and do not measure unseen mail or live models. |
 | 48 | A clean clone of commit `78de0c5` installed from a warm offline cache and opened both seeded demo accounts without mail or model credentials, including with install scripts disabled. |
 
-The supported local demo and its tests do not establish that the application is ready for production use. Provider setup, history recovery, trusted client IP handling, and full-history sync retain limitations described in [STATUS.md](../STATUS.md).
+The supported local demo and its tests do not establish that the application is ready for production use. Provider setup, live mailbox sync, history recovery, and trusted client IP handling retain limitations described in [STATUS.md](../STATUS.md).
