@@ -1,5 +1,7 @@
 # Open Inbox Zero — End-to-End Autonomous Build Plan (For Codex / ChatGPT)
 
+> **Continuation:** This original plan is a target, not evidence of completion. Follow the later user priority and current next steps in [CURRENT_HANDOFF.md](CURRENT_HANDOFF.md); actual stage and audit status is in [STATUS.md](STATUS.md).
+
 Read `AGENTS.md` and `ARCHITECTURE.md` before starting. Execute this plan stage by stage from **Stage 0** to **Stage 7**. Do not skip any stage, do not stub business logic with fake `TODO` placeholders, and do not proceed to the next stage until every test and command for the current stage passes with exit code `0`.
 
 ---

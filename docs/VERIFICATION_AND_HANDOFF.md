@@ -1,50 +1,18 @@
 # Verification and handoff
 
-Snapshot prepared 2026-11-11 from application commit `cd76041`. These are recorded point-in-time results, not fresh checks run during creation of this documentation.
+Current handoff: [CURRENT_HANDOFF.md](../CURRENT_HANDOFF.md), refreshed 2026-11-14 against application commit `3aeb555`. Results below are point-in-time local evidence, not a production audit.
 
-## Last recorded Stage 4 checks
-
-| Check | Recorded result and limits |
+| Check | Most recent recorded result |
 | --- | --- |
-| `pnpm test` | Passed: 127 web tests and 6 mail-core tests were reported. Some other scaffold packages use `--passWithNoTests`; a passing workspace command does not imply those packages have feature tests. |
-| `pnpm lint` | Passed. |
-| `pnpm typecheck` | Passed after the production build completed. |
-| `pnpm build` | Passed for the workspace and produced the Next.js application. |
-| Browser preview | Desktop inbox, rules, analytics and command menu inspected. At 375px the inbox/thread view had document width and scroll width of 375px, and a local message action returned successfully. Not every view, keyboard shortcut, or mutation was exercised in a real browser. |
-| Providers | Gmail, Outlook and outbound HTTP behavior were tested with mocks; no real mailbox, paid AI model, or live unsubscribe was verified. |
-| Audit and evaluation | Full Antigravity audit, benchmark, secret-history/bundle scan and fresh-clone test remain open. |
+| `pnpm test --force` | Passed on 2026-11-14: 168 web tests and the other package tests. The real Redis integration used a temporary Redis 7.4.12 executable via `REDIS_TEST_BINARY`; the test is skipped when that variable is absent. |
+| `pnpm lint`, `pnpm typecheck`, `pnpm build` | Passed on 2026-11-14 for the IMAP helper change. Build may rewrite `apps/web/next-env.d.ts`; preserve the pre-existing local change. |
+| `pnpm eval` | The committed report was generated 2026-11-13 with a deterministic emulator and 60 synthetic messages; it is not a live-model or live-mailbox measurement. It was not rerun for the latest IMAP helper change. |
+| Demo | The demo was previously opened on desktop and a 375-pixel viewport, and its local server was subsequently stopped at the user's request. Do not restart it unless the user requests testing. |
+| Self-hosted mail | Compose configuration and helper mocks pass; there has been no live server, TLS, IMAP, SMTP, external delivery, open-relay, spam or restore test. |
+| Audit and CI | Full checklist and hosted CI have not been verified. Earlier Docker smoke test and scans are historical; see [AUDIT_STATUS.md](AUDIT_STATUS.md). |
 
-## Run locally
+For local checks, the suite needs temporary loopback PostgreSQL instances and optionally a Redis executable. Commands are `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm eval` and `pnpm build`; run typecheck and build sequentially because Next.js can rewrite generated files. A previous pair of full runs timed out during long machine pauses; a later awake run passed. Never commit the generated evaluation report or other files blindly without checking changes.
 
-Prerequisites: Node.js 22+ and pnpm. From the repository root:
+The local demo uses synthetic accounts and data. If the user later requests it, `pnpm install` and `pnpm local:start` start it; the launcher applies schema synchronization to any supplied `DATABASE_URL`, so use only a project-specific database. The current user request is to leave it stopped.
 
-```sh
-pnpm install
-pnpm local:start
-```
-
-Open the loopback URL printed by the launcher. The demo is synthetic; do not interpret its mailbox data or simulated unsubscribe as real activity. The launcher runs schema synchronization on `DATABASE_URL` if one is supplied, so point it at a suitable project database. The embedded database persists in ignored `.local-data/` when no external URL is supplied.
-
-To run the stage checks:
-
-```sh
-pnpm test
-pnpm lint
-pnpm typecheck
-pnpm build
-```
-
-The database integration tests start temporary PostgreSQL instances and need local port binding. Avoid running the Next.js build and typecheck simultaneously: they can contend over generated `.next` types. Build and test checks may take time on a fresh install.
-
-## Recovery and operations
-
-Audited recovery scripts exist for interrupted [rule execution](../apps/web/scripts/recover-execution.ts), [cleanup](../apps/web/scripts/recover-cleanup.ts), and [reply tracking](../apps/web/scripts/recover-tracker.ts). Their interactive flows require operator identity, evidence that the original process has stopped, and confirmation. A timeout may leave an outbound operation's outcome uncertain; do not blindly retry it or assume it failed.
-
-The demo API uses an ephemeral launcher-generated token and is limited to emulator accounts. It should not be exposed as a production authentication mechanism. The local worker polls PostgreSQL and resolves emulator providers only.
-
-## Open decisions and checks
-
-- Decide the target behavior for a static rule that also has natural-language instructions: the implemented zero-LLM early return differs from the more restrictive wording in the original architecture.
-- Build real account authentication, authorization, credential refresh, inbound/sent event integration, and real-provider worker resolution before claiming live Gmail/Outlook support.
-- Integrate and expand the cache, shared UI and CLI, and implement MCP, evaluation and release components described in the [capability map](CAPABILITIES_AND_ROADMAP.md).
-- Repeat applicable tests, browser checks, and the complete audit against the final integrated application. Do not claim the benchmark targets until they have actually been measured.
+For incident recovery, consult the existing rule, cleanup and reply-tracker recovery scripts and establish whether external side effects occurred before retrying. A failed provider call can have succeeded remotely. The experimental mail-server deployment has not yet had a tested backup or restore.

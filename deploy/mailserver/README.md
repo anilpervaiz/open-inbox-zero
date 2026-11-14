@@ -1,6 +1,6 @@
 # Self-hosted mail server (experimental)
 
-This separate stack supplies Postfix, Dovecot and Rspamd. It does **not** yet connect mailboxes to the Open Inbox Zero workspace: IMAP/SMTP integration, password sign-in, invitations, synchronization and manual sending are still under development. Do not invite users or depend on this configuration for real mail until its security, delivery and recovery tests have passed.
+This separate stack supplies Postfix, Dovecot and Rspamd. It does **not** yet connect mailboxes to the Open Inbox Zero workspace: a read-only, mock-tested IMAP folder-list helper exists, but the full provider, SMTP integration, password sign-in, invitations, synchronization and manual sending remain to be built. Do not invite users or depend on this configuration for real mail until its security, delivery and recovery tests have passed. See [current handoff](../../CURRENT_HANDOFF.md).
 
 The service is intended for a Linux host with Docker, a fixed public IP address and a domain you control. SMTP port 25 must be reachable both inbound and outbound for direct delivery. Ports 465, 587 and 993 must also be reachable by authorized mail clients. Your hosting provider must support an appropriate reverse DNS (PTR) record. Configure host-level firewalling, monitoring and access controls; exposing a port is not a substitute for them.
 

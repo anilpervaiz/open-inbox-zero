@@ -2,7 +2,7 @@
 
 Open Inbox Zero is an MIT-licensed email assistant and split-inbox application. It can organize mail with rules, track replies, create drafts, help manage newsletters, and expose mailbox tools through MCP. A synthetic local demo runs without Google or Microsoft credentials and without a paid AI key.
 
-**Project status:** the local emulator and automated tests run, but this project has not completed its full architecture/security audit. Real Google and Microsoft sign-in, notifications, and end-to-end mailbox behavior have not been verified against live accounts. Review [STATUS.md](STATUS.md) before using it with sensitive mail.
+**Project status:** the local emulator and automated tests run, but this project has not completed its full architecture/security audit. Real Google and Microsoft sign-in, notifications, and end-to-end mailbox behavior have not been verified against live accounts. The current priority is the separately hosted mail service, which is not yet connected to the workspace. See [STATUS.md](STATUS.md) and [CURRENT_HANDOFF.md](CURRENT_HANDOFF.md) before using real mail.
 
 An experimental [self-hosted mail server package](deploy/mailserver/README.md) is available separately. It is not yet connected to this workspace or verified for real mail.
 

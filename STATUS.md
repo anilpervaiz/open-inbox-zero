@@ -1,6 +1,8 @@
 # Open Inbox Zero — Current Status
 
-Last updated: 2026-11-13
+Last updated: 2026-11-14. Current continuation: [CURRENT_HANDOFF.md](CURRENT_HANDOFF.md).
+
+**Current priority:** build the user's own self-hosted email service first, using one domain and administrator-created invited mailboxes. Gmail/Outlook are retained for later. The user is arranging an Oracle Cloud server; no cloud deployment has been performed. The user asked to keep the local demo off until they choose to test it again.
 
 For the detailed documentation index, see [docs/README.md](docs/README.md).
 
@@ -14,7 +16,7 @@ The application is **not finished**. This file records the current implementatio
 - **Stage 3 — Cleanup and reply tracking:** Unsubscribe and cleanup services, reply tracker, digest and local emulator API routes. Commit `0669203`.
 - **Stage 4 — Local inbox interface:** Split inbox, draft composer, rule and knowledge screens, unsubscribe and cold-email views, analytics, audit log, command menu and keyboard navigation. Commit `cd76041`.
 
-On 2026-11-11, after the rule and shared-package updates, `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` passed locally. `pnpm eval` now runs the synthetic benchmark; see the measured results and limitations below. The desktop preview and a 375-pixel mobile inbox/thread view were inspected; this is not a completed browser audit of every interaction. The test suite uses an embedded PostgreSQL server and simulated provider APIs; it does not establish live Gmail or Outlook behavior.
+On 2026-11-14, at application commit `3aeb555`, `pnpm test --force` passed with 168 web tests and the other workspace tests, including isolated real Redis integration; `pnpm lint`, `pnpm typecheck`, and `pnpm build` passed. The latest `pnpm eval` report is from 2026-11-13 and uses synthetic cases; see its limitations below. The desktop preview and a 375-pixel mobile inbox/thread view were inspected earlier; this is not a completed browser audit of every interaction. Tests use temporary PostgreSQL and simulated provider APIs; they do not establish live provider behavior.
 
 Start the local seeded demo with `pnpm install` followed by `pnpm local:start`. It uses synthetic email accounts and does not require OAuth credentials or a paid model key. Demo data is not real customer or production data.
 

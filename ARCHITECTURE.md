@@ -1,5 +1,7 @@
 # Open Inbox Zero — Reverse-Engineered System Architecture
 
+> **Current implementation and later user direction:** This document remains the original target specification, not a current-state report. The user subsequently prioritized a self-hosted mail service before live Gmail/Outlook support. See [CURRENT_HANDOFF.md](CURRENT_HANDOFF.md) and [docs/CURRENT_ARCHITECTURE.md](docs/CURRENT_ARCHITECTURE.md) for verified state and the explicit hybrid-AND routing clarification.
+
 This document defines the exact architecture, tech stack, database schema, provider interfaces, and core algorithms for **Open Inbox Zero**. Codex must follow this specification when implementing the repository.
 
 ---

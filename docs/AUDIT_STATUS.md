@@ -2,6 +2,8 @@
 
 This is an evidence map for [ANTIGRAVITY_AUDIT_CHECKLIST.md](../ANTIGRAVITY_AUDIT_CHECKLIST.md), not a claim that the complete audit has passed. The checklist itself skips numbers 15, 16, 28, 49 and 50.
 
+Snapshot refreshed 2026-11-14 for application commit `3aeb555`. The latest full local run passed 168 web tests plus other workspace tests, lint, typecheck and build, including isolated Redis integration. The evaluation report and historical scans were not rerun for that commit. Self-hosted mail adds new work outside the original checklist and has not had a live security or delivery audit.
+
 | Checks | Current evidence and limits |
 | --- | --- |
 | 1 | The tracked license is the requested MIT text. |

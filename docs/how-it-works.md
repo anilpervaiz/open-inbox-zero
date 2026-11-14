@@ -6,6 +6,10 @@ Rule selection and draft generation are separate. Draft generation can use knowl
 
 Before automated mail changes, the application records the rule execution and actions. Archive guards protect the account's domain and configured VIP patterns; outbound guards restrict actions based solely on an unverified From header. Undo uses provider-specific snapshots and cannot guarantee automatic recovery from every uncertain external outcome.
 
+Pilot mode defaults to blocking rule-driven automatic sends and forwards, including actions scheduled before pilot mode was enabled. This does not yet provide a self-hosted manual-send flow.
+
 Reply tracking replays incoming and sent events in time order. An incoming request can create a needs-reply state, a verified user reply can change it to awaiting-reply, and an appropriate later response can resolve that state. Label changes are recorded and synchronized separately.
 
 Public health is a liveness response. Detailed health checks need a bearer token. Session and API-key access are account-scoped; keys are stored as hashes. Provider webhooks validate their credentials before queueing work. These boundaries and their current limits are described in [STATUS.md](../STATUS.md); live-provider verification and the full audit are outstanding.
+
+The separate self-hosted mail server is experimental. Encrypted mailbox credentials and a read-only IMAP folder-list helper exist, but they are not wired to the workspace or synchronization worker. See [CURRENT_HANDOFF.md](../CURRENT_HANDOFF.md) for the implementation boundary.

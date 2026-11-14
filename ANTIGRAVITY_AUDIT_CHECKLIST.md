@@ -1,5 +1,7 @@
 # Antigravity 50-Point Expert Audit Checklist (Post-Codex Verification)
 
+> **Status:** The audit is not complete. See [docs/AUDIT_STATUS.md](docs/AUDIT_STATUS.md) for evidence and the explicit hybrid-AND requirement that conflicts with the unconditional bypass wording in check 21. The self-hosted mail-service work is additional scope described in [CURRENT_HANDOFF.md](CURRENT_HANDOFF.md).
+
 Once Codex finishes building **Open Inbox Zero** in `/Users/apple/Documents/AI-Demos/open-inbox-zero`, Antigravity will execute this verification suite to audit the codebase, try to break every safety guard, and test the live application in a real headless Chrome browser.
 
 ---
