@@ -67,6 +67,12 @@ test("seeds a real PostgreSQL database once without resetting user changes", asy
     const demo = await prisma.emailAccount.findUniqueOrThrow({ where: { id: "demo-gmail" } });
     vi.stubEnv("TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 19).toString("base64"));
     const privateMailbox = await prisma.emailAccount.create({ data: { userId: demo.userId, email: "private@example.test", provider: "selfhosted" } });
+    const maxUid = 4294967295n;
+    await prisma.selfHostedFolderState.create({ data: { emailAccountId: privateMailbox.id, folderPath: 'INBOX', uidValidity: maxUid, lastSyncedUid: maxUid } });
+    expect((await prisma.selfHostedFolderState.findUniqueOrThrow({ where: { emailAccountId_folderPath: { emailAccountId: privateMailbox.id, folderPath: 'INBOX' } } })).lastSyncedUid).toBe(maxUid);
+    const imapRow = { emailAccountId: privateMailbox.id, threadId: 'imap-thread', messageId: 'imap-message', fromEmail: 'sender@example.test', toEmail: privateMailbox.email, subject: 'Hi', snippet: 'Hi', textBody: 'Hi', labels: ['INBOX'], internalDate: new Date(), imapFolder: 'INBOX', imapUidValidity: maxUid, imapUid: maxUid };
+    await prisma.emailMessage.create({ data: imapRow });
+    await expect(prisma.emailMessage.create({ data: { ...imapRow, messageId: 'another-id' } })).rejects.toMatchObject({ code: 'P2002' });
     await saveSelfHostedCredential({ prisma, userId: demo.userId, accountId: privateMailbox.id, password: "test mailbox secret" });
     const storedSecret = await prisma.selfHostedCredential.findUniqueOrThrow({ where: { emailAccountId: privateMailbox.id } });
     expect(storedSecret.encryptedSecret).not.toContain("test mailbox secret");
@@ -74,6 +80,7 @@ test("seeds a real PostgreSQL database once without resetting user changes", asy
     await expect(getSelfHostedCredential({ prisma, userId: "someone-else", accountId: privateMailbox.id })).rejects.toThrow("Mailbox unavailable");
     await prisma.emailAccount.delete({ where: { id: privateMailbox.id } });
     expect(await prisma.selfHostedCredential.findUnique({ where: { emailAccountId: privateMailbox.id } })).toBeNull();
+    expect(await prisma.selfHostedFolderState.count({ where: { emailAccountId: privateMailbox.id } })).toBe(0);
     vi.unstubAllEnvs();
     const issued = await createUserApiKey(prisma, { userId: demo.userId, name: "Integration test" });
     const stored = await prisma.userApiKey.findUniqueOrThrow({ where: { id: issued.key.id } });

@@ -213,6 +213,7 @@ model EmailAccount {
   providerSubscriptions ProviderSubscription[]
   emailMessages        EmailMessage[]
   selfHostedCredential SelfHostedCredential?
+  selfHostedFolders    SelfHostedFolderState[]
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 }
@@ -224,6 +225,21 @@ model SelfHostedCredential {
   emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
   encryptedSecret String
   updatedAt      DateTime     @updatedAt
+}
+
+// IMAP UIDs and UIDVALIDITY are unsigned 32-bit values, so PostgreSQL Int is
+// too small. Progress advances only after a complete reconciled folder scan.
+model SelfHostedFolderState {
+  emailAccountId String
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  folderPath     String
+  uidValidity    BigInt
+  lastSyncedUid  BigInt       @default(0)
+  highestModSeq  BigInt?
+  specialUse     String?
+  lastScanCompletedAt DateTime?
+
+  @@id([emailAccountId, folderPath])
 }
 
 model ProviderSubscription {
@@ -527,8 +543,12 @@ model EmailMessage {
   listUnsubscribe String?
   listUnsubscribePost String?
   internalDate   DateTime
+  imapFolder     String?
+  imapUid        BigInt?
+  imapUidValidity BigInt?
 
   @@unique([emailAccountId, messageId])
+  @@unique([emailAccountId, imapFolder, imapUidValidity, imapUid])
 }
 
 // Cooperative fail-closed lock for provider mutations and undo on a thread.
