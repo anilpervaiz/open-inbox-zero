@@ -13,8 +13,9 @@ export function authConfiguration(env: Record<string, string | undefined> = proc
   if (base.protocol !== 'https:' && !(base.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(base.hostname))) return null;
   const google = env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET, accessType: 'offline' as const, scope: ['https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'], prompt: 'consent' as const } : undefined;
   const microsoft = env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET ? { clientId: env.MICROSOFT_CLIENT_ID, clientSecret: env.MICROSOFT_CLIENT_SECRET, tenantId: 'common', scope: ['User.Read', 'Mail.ReadWrite', 'Mail.Send', 'offline_access'] } : undefined;
-  if (!google && !microsoft) return null;
-  return { secret, baseUrl: base.origin, google, microsoft };
+  const selfHosted = Boolean(env.SELF_HOSTED_MAIL_DOMAIN || env.SELF_HOSTED_IMAP_HOST || env.SELF_HOSTED_AUTH_ENABLED === 'true');
+  if (!google && !microsoft && !selfHosted) return null;
+  return { secret, baseUrl: base.origin, google, microsoft, selfHosted };
 }
 
 export function createSessionAuth(configuration: NonNullable<ReturnType<typeof authConfiguration>>, db = prisma) {
@@ -26,6 +27,7 @@ export function createSessionAuth(configuration: NonNullable<ReturnType<typeof a
     session: { modelName: 'authSession' },
     account: { modelName: 'authAccount', encryptOAuthTokens: true, accountLinking: { disableImplicitLinking: true, allowDifferentEmails: true } },
     verification: { modelName: 'authVerification' },
+    emailAndPassword: { enabled: true, disableSignUp: true },
     socialProviders: { ...(configuration.google ? { google: configuration.google } : {}), ...(configuration.microsoft ? { microsoft: configuration.microsoft } : {}) },
     advanced: { useSecureCookies: configuration.baseUrl.startsWith('https://') },
   });

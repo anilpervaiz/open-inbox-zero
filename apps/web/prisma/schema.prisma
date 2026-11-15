@@ -118,6 +118,7 @@ model User {
   updatedAt     DateTime       @updatedAt
   emailAccounts EmailAccount[]
   apiKeys       UserApiKey[]
+  invitations   MailboxInvitation[]
 }
 
 model AuthSession {
@@ -240,6 +241,24 @@ model SelfHostedFolderState {
   lastScanCompletedAt DateTime?
 
   @@id([emailAccountId, folderPath])
+}
+
+// Mailbox invitations allow administrators to provision local mailboxes for users
+// without enabling unauthenticated public registration.
+model MailboxInvitation {
+  id             String    @id @default(cuid())
+  email          String
+  tokenHash      String    @unique
+  createdByAdmin String
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt      DateTime  @default(now())
+
+  @@index([email, acceptedAt, revokedAt])
+  @@index([userId])
 }
 
 model ProviderSubscription {

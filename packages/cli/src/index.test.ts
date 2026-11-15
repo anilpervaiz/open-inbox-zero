@@ -7,8 +7,10 @@ describe('CLI', () => {
     const deps = { fetch, run, env: {} };
     await runCli(['seed'], deps);
     await runCli(['eval'], deps);
+    await runCli(['invite:create', '--email', 'alice@example.test'], deps);
     expect(run).toHaveBeenNthCalledWith(1, ['--filter', '@open-inbox-zero/web', 'exec', 'tsx', 'scripts/seed-cli.ts']);
     expect(run).toHaveBeenNthCalledWith(2, ['eval']);
+    expect(run).toHaveBeenNthCalledWith(3, ['--filter', '@open-inbox-zero/web', 'exec', 'tsx', 'scripts/invite-create.ts', '--email', 'alice@example.test']);
   });
   it('runs rules through the authenticated local API and rejects nonlocal hosts', async () => {
     const mockFetch = vi.fn(async (url: URL, init?: RequestInit) => { void url; void init; return Response.json({ ok: true }); });

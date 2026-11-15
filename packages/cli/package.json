@@ -1,1 +1,1 @@
-{"name":"@open-inbox-zero/cli","version":"0.1.0","private":true,"type":"module","exports":"./src/index.ts","scripts":{"build":"tsc --noEmit","lint":"eslint .","typecheck":"tsc --noEmit","test":"vitest run --passWithNoTests"}}
+{"name":"@open-inbox-zero/cli","version":"0.1.0","private":true,"type":"module","exports":"./src/index.ts","scripts":{"build":"tsc --noEmit","lint":"eslint .","typecheck":"tsc --noEmit","test":"vitest run --passWithNoTests","invite:create":"tsx src/main.ts invite:create"}}

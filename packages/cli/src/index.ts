@@ -17,6 +17,9 @@ export async function runCli(args: string[], deps: CliDependencies = { fetch, ru
   const [command, accountId, extra] = args;
   if (command === 'seed' && !accountId) return deps.run(['--filter', '@open-inbox-zero/web', 'exec', 'tsx', 'scripts/seed-cli.ts']);
   if (command === 'eval' && !accountId) return deps.run(['eval']);
+  if (command === 'invite:create') {
+    return deps.run(['--filter', '@open-inbox-zero/web', 'exec', 'tsx', 'scripts/invite-create.ts', ...args.slice(1)]);
+  }
   if ((command !== 'run-rules' && command !== 'digest') || !accountId || extra) throw new Error('Usage: seed | eval | run-rules <account-id> | digest <account-id>');
   const token = deps.env.LOCAL_EMULATOR_TOKEN;
   if (!token) throw new Error('LOCAL_EMULATOR_TOKEN is required');
