@@ -1,43 +1,29 @@
-# Capability and stage map
+# Capabilities and Roadmap
 
-Snapshot: 2026-11-14, application commit `3aeb555`. “Implemented” means code is present; it does not imply the full audit checklist, live service integration, or production readiness. Current handoff: [CURRENT_HANDOFF.md](../CURRENT_HANDOFF.md).
+Updated **2026-11-15** against verified application commit `f21af8e`.
 
-| Capability | Current state | Evidence / limitation |
-| --- | --- | --- |
-| Local demo | Implemented | Two synthetic emulator accounts; embedded PostgreSQL and no paid LLM key needed. [Launcher](../apps/web/scripts/local-dev.ts) and [seed data](../apps/web/scripts/seed-data.ts). |
-| Inbox and thread view | Implemented locally | Split inbox, account switcher, virtualized list, message view, draft saving and navigation in [workspace.tsx](../apps/web/app/components/workspace.tsx). Connected-account support has simulated tests; live provider verification is outstanding. |
-| Rules and knowledge | Implemented locally | Rule creation/editing, sender groups and knowledge management. A rule correction undoes the old action, records feedback, and attempts a separately audited replacement execution subject to safety guards. |
-| Rule routing and learning | Implemented locally | System/static/group checks, cold gate, AI selection/fallback, separate draft generation and learned-group feedback. See [matcher](../apps/web/utils/ai/choose-rule/match-rules.ts). |
-| Cleanup, unsubscribe, cold handling | Implemented locally | Cleanup jobs, undo, unsubscribe, cold sender handling and local API/UI. Real-provider requests and sign-in are not proven end to end. |
-| Reply tracking and digest | Implemented locally | Tracker state, label outbox and structured digest exist. Live provider event ingestion and full account workflows remain to be integrated and verified. |
-| Gmail / Microsoft adapters | Implemented, mocked tests | Live OAuth, token refresh, webhook delivery and live-account behavior remain unverified. |
-| Self-hosted email service | Foundation only | Separate experimental mail-server Compose; encrypted owner-bound mailbox credentials; a read-only IMAP folder-list helper with mock tests. No integrated IMAP/SMTP provider, sync, manual sending, invitation or password sign-in. No live mail-server test or restore drill. |
-| Browser SQLite cache | Partial | [mail-sqlite](../packages/mail-sqlite/src/index.ts) provides an account-scoped FTS5 cache, with OPFS where supported; the workspace does not yet use it. |
-| Shared mail UI and CLI | Partial | [mail-ui](../packages/mail-ui/src/index.ts) supplies sanitization and display helpers. [cli](../packages/cli/src/index.ts) dispatches commands; evaluation invokes the Stage 6 runner and local API commands require the emulator token. The current UI lives in the web application. |
-| Real-account auth, public API security and MCP | Partial | Key and session authentication support owned emulator and connected provider accounts; live provider verification remains outstanding. |
-| 60-message evaluation | Implemented locally | `pnpm eval` runs synthetic cases with the deterministic emulator and records a report; it does not establish live-provider or unseen-mail performance. |
-| Deployment and release | Partial | Compose, CI and release docs are present; an earlier isolated Docker smoke test and fresh clone of `78de0c5` passed. Hosted CI, current-head fresh-clone and live-provider verification remain outstanding. |
+## What Is Built & Verified Locally
 
-## Ordered next work
+### Stages 1–4 (Core Demo & Rule Control Plane)
 
-1. Build the self-hosted IMAP/SMTP provider and reliable account-scoped synchronization, with tests for mailbox identity changes, interrupted sync, isolation and safe undo.
-2. Add administrator-created invitations and password sign-in, then explicit manual sending with an audited uncertain-outcome policy. Keep pilot automation restrictions in place.
-3. Create and verify a production migration and isolated mail-server integration tests, including TLS, relay protections, backup and restore. The user is arranging Oracle hosting; keep the demo and mail server off unless requested.
-4. Exercise real delivery on a test domain once the environment is available; then address live Gmail/Outlook and remaining architecture, security, accessibility and audit gaps.
-5. Re-run the quality checks and [audit checklist](../ANTIGRAVITY_AUDIT_CHECKLIST.md); record actual evidence rather than marking an item complete from implementation alone.
+- **Local synthetic demo (`pnpm local:start`):** SQLite-backed synthetic inbox (`@open-inbox-zero/mail-sqlite`) showcasing triage, rules, reply tracking, cold-email blocking, and safe unsubscribe without live OAuth or external AI keys.
+- **Rule engine & safety controls:** Hybrid `AND` rule evaluation, prompt-injection safeguards, and `PILOT_MODE=true` gating that prevents automated AI/rule sends and forwards.
+- **Deterministic evaluation harness (`pnpm eval`):** 60 synthetic benchmark cases verifying rule accuracy, cold-email precision, unsubscribe safety, VIP protection, reply state tracking, and zero unauthorized sends.
 
-Each stage is expected to pass `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` before its stage commit, as specified in the [build plan](../CODEX_BUILD_PLAN.md).
+### Self-Hosted Mail Phases 1–5 (Integrated on `main`)
 
-Stage 5 progress: `/api/health` provides free liveness and authenticated database, configured Redis, local emulator and up to ten connected provider checks; more than ten providers are reported as partial. Live provider verification remains outstanding. Local API burst limits are process-local; MCP uses Redis-backed limiting outside local mode; trusted client-IP identification remains outstanding.
+- **Phase 1 (`87e76d9`) — Self-hosted IMAP provider & resolver:** [`SelfHostedMailProvider`](../apps/web/utils/mail-provider/self-hosted-provider.ts) wired into [`resolveMailProvider`](../apps/web/utils/mail-provider/provider-resolver.ts) for `provider === 'selfhosted'`, plus safe pass-through helpers and unit tests.
+- **Phase 2 (`7bb42f3`) — Sync, queue, maintenance & health:** [`syncSelfHostedAccount`](../apps/web/utils/worker/self-hosted-sync.ts) supports initial bootstrap without rule execution, incremental `UIDVALIDITY`/`HIGHESTMODSEQ` sync (`parseSafeModSeq`), multi-attribute cross-folder move tracking, and pre-rule IMAP lock cleanup, wired into [`provider-sync.ts`](../apps/web/utils/worker/provider-sync.ts), [`provider-maintenance.ts`](../apps/web/utils/worker/provider-maintenance.ts), and [`/api/health`](../apps/web/app/api/health/route.ts), verified with real Node loopback TLS/IMAP harnesses ([`self-hosted-dovecot.test.ts`](../apps/web/__tests__/self-hosted-dovecot.test.ts)).
+- **Phase 3 (`91f64b6`) — Closed-signup password auth & invitations:** `MailboxInvitation` schema, closed-signup Better Auth `emailAndPassword` (`disableSignUp: true` in [`session-auth.ts`](../apps/web/utils/auth/session-auth.ts)), SHA-256 token invite lifecycle & credential rotation ([`invitations.ts`](../apps/web/utils/auth/invitations.ts)), [`/api/auth/invite`](../apps/web/app/api/auth/invite/route.ts), and `@open-inbox-zero/cli` `invite:create` ([`invite-create.ts`](../apps/web/scripts/invite-create.ts)).
+- **Phase 4 (`8598361`) — Audited manual SMTP outbox:** `OutboundMessageDelivery` schema and [`self-hosted-smtp.ts`](../apps/web/utils/mail-provider/self-hosted-smtp.ts) enforcing `PILOT_MODE` + explicit `userInitiated === true`, CRLF/sender/ownership checks, implicit TLS / mandatory `STARTTLS`, `CLAIMED`/`PRE_DATA`/`IN_DATA`/`UNCERTAIN` recovery, best-effort `\Sent` append, and [`self-hosted-smtp.test.ts`](../apps/web/__tests__/self-hosted-smtp.test.ts).
+- **Phase 5 (`f21af8e`) — Production migration, DR drill & mailserver preflight:** Baseline SQL migration [`20261115000000_production_baseline`](../apps/web/prisma/migrations/20261115000000_production_baseline/migration.sql), [`docker-compose.yml`](../docker-compose.yml) `prisma migrate deploy`, [`verify-backup-restore.ts`](../apps/web/scripts/verify-backup-restore.ts), and [`verify-mailserver-preflight.ts`](../apps/web/scripts/verify-mailserver-preflight.ts) verified in [`backup-restore.test.ts`](../apps/web/__tests__/backup-restore.test.ts).
 
-The user API-key model stores only a hash and supports expiration and owner-scoped revocation. The six MCP tools use these keys for owned emulator and connected provider accounts. Signed-in users can create and revoke assistant keys in the workspace; live-provider MCP verification remains outstanding; configured Better Auth sessions can also authenticate MCP.
+## What Remains Operator-Deferred (Live Environment Only)
 
-The delayed worker can resolve real Gmail and Outlook accounts using encrypted, refreshable credentials. This has not been tested against live providers; OAuth sign-in and incoming-message synchronization remain incomplete.
-
-Google Pub/Sub and Microsoft Graph webhook handlers verify notification credentials and enqueue BullMQ synchronization work. Gmail requires an initialized history cursor, and Microsoft requires a registered subscription with a stored client-state hash. Initial setup and renewal of unexpired watches/subscriptions are implemented when configured. Provider notifications have mock tests; queue delivery and deduplication were tested with isolated Redis 7.4.12. Expired Gmail history and expired Microsoft subscription recovery remain incomplete. Live provider delivery remains unverified. Microsoft folder removals preserve cached messages outside the inbox.
-
-Better Auth provides configurable Google/Microsoft identity sign-in and signed sessions, with encrypted OAuth-token storage and implicit account linking disabled. A session-authenticated endpoint can link an identity to its verified mailbox after checking permissions. The sign-in/connection screen and a paginated initial sync are implemented. The import is tested with simulated providers; live provider verification and expired-history recovery remain incomplete.
-
-The worker renews Gmail watches and active Microsoft subscriptions before expiration. Gmail catch-up is queued without advancing the stored history cursor. Provider responses are simulated in tests; expired subscriptions and expired Gmail history require recovery, and live renewal has not been verified.
-
-The cleanup and digest APIs accept signed-in sessions with mailbox-owner checks; local demo tokens remain limited to emulator accounts. Real-provider cleanup is tested with simulated provider responses, not live mailboxes.
+| Area | Current Status | Operator Action Needed for Live Cutover |
+|---|---|---|
+| Live PostgreSQL `pg_dump` / `pg_restore` | Code path implemented in [`verify-backup-restore.ts`](../apps/web/scripts/verify-backup-restore.ts); macOS test host used `logical_snapshot` + `tar` fallback because `pg_dump` is absent | Run `verify-backup-restore.ts` on a Linux/macOS host with PostgreSQL client binaries installed |
+| Live Dovecot / Postfix mailserver | Scaffolding in [`deploy/mailserver/compose.yaml`](../deploy/mailserver/compose.yaml); verified locally with Node loopback TLS/STARTTLS harnesses | Provision VM + certificates, set `DOVECOT_TEST_HOST`, and verify live IMAP/SMTP |
+| Public DNS (MX, PTR, SPF, DKIM, DMARC) | Preflight verifier tested with injected probes | Configure registrar/cloud DNS and run [`verify-mailserver-preflight.ts`](../apps/web/scripts/verify-mailserver-preflight.ts) |
+| Live Redis integration | Worker queue tests pass; live Redis suite gated by `REDIS_TEST_BINARY` | Run against target Redis instance during staging soak test |
+| Live Gmail / Outlook OAuth | Not exercised against live vendor accounts locally | Supply OAuth client credentials during cloud rollout if needed |

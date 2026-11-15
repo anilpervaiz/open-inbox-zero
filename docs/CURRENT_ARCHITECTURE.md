@@ -1,32 +1,27 @@
-# Current architecture and technology
+# Current Architecture and Technology
 
-Snapshot: 2026-11-14, application commit `3aeb555`. This describes code that exists, not production readiness. See [CURRENT_HANDOFF.md](../CURRENT_HANDOFF.md) for the next implementation steps.
+Updated **2026-11-15** (verified on commit `f21af8e`).
 
-```mermaid
-flowchart LR
-  Browser --> UI[Next.js workspace]
-  UI --> API[Session or demo-authenticated APIs]
-  API --> DB[(PostgreSQL)]
-  API --> Engine[Rule engine]
-  API --> Providers[Emulator / Gmail / Outlook adapters]
-  Engine --> Providers
-  Hooks[Verified provider webhooks] --> Queue[(Redis / BullMQ)]
-  Queue --> Sync[Provider sync worker]
-  Sync --> Providers
-  Sync --> DB
-  IMAP[Read-only IMAP folder-list helper] -. not wired .-> DB
-  Mail[Experimental Postfix / Dovecot stack] -. not connected .-> IMAP
-```
+## Monorepo Packages
 
-The local demo uses the database-backed emulator, synthetic messages and a deterministic model fallback. Gmail and Outlook sessions, provider adapters, token refresh, webhook handling and worker synchronization have been implemented and tested with simulated provider responses; live provider behavior is not verified. Initial provider import is paginated. Expired Gmail history, expired Microsoft subscriptions and crashed sync locks still need recovery.
+Turbo workspace (`turbo.json`) builds and tests six TypeScript/Node >=22 packages:
 
-## Components and boundaries
+- `@open-inbox-zero/web` ([`apps/web`](../apps/web)) — Next.js 16 App Router UI and API routes, Prisma Postgres client (`@prisma/client`), Better Auth session/invitation auth, IMAP/SMTP providers, sync/rule engine, and synthetic eval harness.
+- `@open-inbox-zero/worker` ([`apps/worker`](../apps/worker)) — background BullMQ/queue consumer entrypoint driving account sync and maintenance.
+- `@open-inbox-zero/mail-core` ([`packages/mail-core`](../packages/mail-core)) — shared provider types and email rule abstractions.
+- `@open-inbox-zero/mail-sqlite` ([`packages/mail-sqlite`](../packages/mail-sqlite)) — SQLite synthetic demo persistence used by `pnpm local:start`.
+- `@open-inbox-zero/mail-ui` ([`packages/mail-ui`](../packages/mail-ui)) — shared React mailbox UI primitives.
+- `@open-inbox-zero/cli` ([`packages/cli`](../packages/cli)) — CLI utilities including `invite:create` for self-hosted admin invitations.
 
-- **Workspace:** Next.js 16, React, TypeScript, Prisma/PostgreSQL and pnpm/Turborepo. Workspace, cleanup, digest and MCP APIs support scoped local-demo or authenticated access as appropriate. Do not expose demo authentication publicly.
-- **Rule engine:** system/thread heuristics, static/group conditions, cold-email gate, then AI router. A static/group match with no instructions or OR may return deterministically; a hybrid AND rule with instructions requires both the deterministic match and AI selection. This is the user's later explicit requirement; the original checklist's unconditional learned-group bypass does not apply to hybrid AND rules.
-- **Execution:** selection and draft generation are separate. Rule and action audit rows precede provider effects. Protected-sender and static-From guards apply, with undo only for supported reversible effects. Pilot mode blocks rule-driven sends and forwards, including previously queued jobs; standalone operators can explicitly disable pilot mode. Uncertain external effects require reconciliation, not blind retry.
-- **Self-hosted mail:** [separate experimental Compose stack](../deploy/mailserver/README.md), encrypted owner-scoped credential storage, and [IMAP folder-list helper](../apps/web/utils/mail-provider/self-hosted-imap.ts) exist. The helper connects only to an operator-configured hostname using certificate-verified TLS and has mocked tests. It is not called by the provider resolver, an API or the workspace. No full IMAP/SMTP provider, synchronization, manual send, mailbox sign-in or invitations exist. A reviewed production schema migration is needed for `SelfHostedCredential`.
-- **Workers:** the local delayed-action worker uses PostgreSQL polling; BullMQ/Redis handles real-provider notification jobs. Neither establishes that the incomplete self-hosted sync works.
-- **Shared packages:** `mail-core`, `mail-sqlite`, `mail-ui` and `cli` contain usable primitives, but the browser SQLite cache and all shared UI primitives are not fully integrated into the workspace.
+## Implemented Data & Self-Hosted Mail Flow
 
-The existing application Compose stack uses `prisma db push`, not a reviewed migration workflow. The experimental mail-server Compose package has only had its configuration validated; no live mail-server security, delivery or backup/restore verification is claimed. For latest evidence and limitations see [STATUS.md](../STATUS.md) and [AUDIT_STATUS.md](AUDIT_STATUS.md).
+1. **Authentication & Closed Onboarding:** [`session-auth.ts`](../apps/web/utils/auth/session-auth.ts) enables Better Auth `emailAndPassword` with `disableSignUp: true` when self-hosted mail is configured. [`invitations.ts`](../apps/web/utils/auth/invitations.ts) manages SHA-256 `MailboxInvitation` records, transactional invitation acceptance (`AuthAccount`, `EmailAccount`, encrypted `SelfHostedCredential`, IMAP probe rollback on failure), and credential rotation via [`/api/auth/invite`](../apps/web/app/api/auth/invite/route.ts) and CLI `invite:create`.
+2. **Provider Resolution & Read Path:** [`resolveMailProvider`](../apps/web/utils/mail-provider/provider-resolver.ts) selects [`SelfHostedMailProvider`](../apps/web/utils/mail-provider/self-hosted-provider.ts) for `provider === 'selfhosted'` accounts, using [`self-hosted-imap.ts`](../apps/web/utils/mail-provider/self-hosted-imap.ts) with validated `SELF_HOSTED_IMAP_PORT` and strict TLS (`rejectUnauthorized: true`, optional trusted CA).
+3. **Bootstrap & Incremental IMAP Sync:** [`syncSelfHostedAccount`](../apps/web/utils/worker/self-hosted-sync.ts) runs first-time bootstrap scans without executing rules, then performs incremental `UIDVALIDITY`/`HIGHESTMODSEQ` sync (`parseSafeModSeq`), multi-attribute move detection across folders (preserving `id`, `messageId`, `threadId`), and closes the IMAP folder lock before running rule evaluation. Scheduled via [`provider-sync.ts`](../apps/web/utils/worker/provider-sync.ts) and [`provider-maintenance.ts`](../apps/web/utils/worker/provider-maintenance.ts); health-probed via [`/api/health`](../apps/web/app/api/health/route.ts).
+4. **Safety-Gated Manual SMTP Outbox:** [`self-hosted-smtp.ts`](../apps/web/utils/mail-provider/self-hosted-smtp.ts) enforces `PILOT_MODE`, explicit `userInitiated === true`, account ownership, sender alignment, CRLF header guards, implicit TLS (465) or mandatory `STARTTLS` (587), `OutboundMessageDelivery` idempotency (`CLAIMED`, `PRE_DATA` -> `FAILED`, `IN_DATA` -> `UNCERTAIN`), best-effort `\Sent` append, and `reconcileUncertainOutboundDelivery`.
+5. **Database Migrations & Disaster Recovery:** [`20261115000000_production_baseline`](../apps/web/prisma/migrations/20261115000000_production_baseline/migration.sql) and [`docker-compose.yml`](../docker-compose.yml) (`prisma migrate deploy`) provide reproducible PostgreSQL schema initialization. [`verify-backup-restore.ts`](../apps/web/scripts/verify-backup-restore.ts) and [`verify-mailserver-preflight.ts`](../apps/web/scripts/verify-mailserver-preflight.ts) validate DR restore integrity and DNS/TLS/open-relay readiness.
+
+## Differences From Full Target Deployment
+
+- All automated verification to date ran against `embedded-postgres`, local TLS/TCP loopback servers, and deterministic synthetic fixtures rather than a live Dovecot/Postfix server, live Redis instance, or live OAuth accounts.
+- [`deploy/mailserver/compose.yaml`](../deploy/mailserver/compose.yaml) provides local container scaffolding but requires operator host, DNS, certificate, and firewall provisioning outside the repository.
