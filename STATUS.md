@@ -1,6 +1,6 @@
 # Open Inbox Zero — Current Status
 
-Last updated: 2026-11-14. Current continuation: [CURRENT_HANDOFF.md](CURRENT_HANDOFF.md).
+Last updated: 2026-11-15. Current continuation: [CURRENT_HANDOFF.md](CURRENT_HANDOFF.md).
 
 **Current priority:** build the user's own self-hosted email service first, using one domain and administrator-created invited mailboxes. Gmail/Outlook are retained for later. The user is arranging an Oracle Cloud server; no cloud deployment has been performed. The user asked to keep the local demo off until they choose to test it again.
 
@@ -16,13 +16,15 @@ The application is **not finished**. This file records the current implementatio
 - **Stage 3 — Cleanup and reply tracking:** Unsubscribe and cleanup services, reply tracker, digest and local emulator API routes. Commit `0669203`.
 - **Stage 4 — Local inbox interface:** Split inbox, draft composer, rule and knowledge screens, unsubscribe and cold-email views, analytics, audit log, command menu and keyboard navigation. Commit `cd76041`.
 
-On 2026-11-14, after the IMAP connection-helper and folder-state foundation, `pnpm test --force` passed with 169 web tests and the other workspace tests, including isolated real Redis integration; `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm eval` passed. The evaluation uses synthetic cases; see its limitations below. The desktop preview and a 375-pixel mobile inbox/thread view were inspected earlier; this is not a completed browser audit of every interaction. Tests use temporary PostgreSQL and simulated provider APIs; they do not establish live provider behavior.
+On 2026-11-15, after adding the raw MIME parser, `pnpm test --force` passed with 169 web tests and the other workspace tests, including isolated real Redis integration and the new parser tests; `pnpm lint`, `pnpm typecheck`, `pnpm build` and `pnpm eval` passed. The evaluation uses synthetic cases; see its limitations below. The desktop preview and a 375-pixel mobile inbox/thread view were inspected earlier; this is not a completed browser audit of every interaction. Tests use temporary PostgreSQL and simulated provider APIs; they do not establish live provider behavior.
 
 Start the local seeded demo with `pnpm install` followed by `pnpm local:start`. It uses synthetic email accounts and does not require OAuth credentials or a paid model key. Demo data is not real customer or production data.
 
 ## Remaining work
 
 An experimental, separate Postfix/Dovecot mail-server Compose package is available in [deploy/mailserver](deploy/mailserver/README.md). Its configuration has been validated without starting a server; it has not been tested for live delivery, security or restoration, and it is not connected to the workspace. A database record and owner-scoped encrypted credential helpers now provide a foundation for self-hosted accounts. The IMAP connection helper uses verified TLS, can read an operator-supplied CA file, and always closes the connection; it has simulated tests only and is not exposed in the workspace. Database fields now reserve account-scoped IMAP folder state and location identities, with 64-bit UID storage for the full IMAP 32-bit unsigned range. They do not yet implement synchronization or reconciliation. There is no user-facing provisioning path. The full IMAP provider, synchronization, SMTP integration, private password sign-in and invitations remain to be built. The new schema needs a reviewed production migration before existing deployments can use it; local schema push is not a production migration.
+
+The shared mail-core package contains a bounded raw MIME parser that extracts message and attachment metadata. Its HTML output remains untrusted and must be sanitized before display; it is not yet wired into a self-hosted provider.
 
 Pilot outbound safety is enabled by default and enforced for both Compose application services: rule-driven sends and forwards are skipped, including delayed jobs scheduled before pilot mode was enabled. Drafts and reversible actions remain available. A non-Compose operator can explicitly set `PILOT_MODE=false` to opt out. This control does not by itself establish pilot readiness; live-provider testing and the recovery and security work below remain outstanding.
 
