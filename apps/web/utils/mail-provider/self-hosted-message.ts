@@ -4,7 +4,13 @@ import { sanitizeEmailHtml } from '../../../../packages/mail-ui/src/index';
 import { fetchSelfHostedRawMessage } from './self-hosted-imap';
 import type { ParsedMessage } from './types';
 
-type MailboxOwner = { prisma: PrismaClient; userId: string; accountId: string };
+type MailboxOwner = {
+  prisma: PrismaClient;
+  userId: string;
+  accountId: string;
+  env?: Record<string, string | undefined>;
+  createClient?: Parameters<typeof fetchSelfHostedRawMessage>[0]['createClient'];
+};
 
 /** List cached threads without crossing the signed-in owner's mailbox boundary. */
 export async function listSelfHostedCachedThreads(input: MailboxOwner & { query?: string; labelIds?: string[]; maxResults?: number }): Promise<string[]> {
@@ -40,7 +46,7 @@ export async function readSelfHostedThread(input: MailboxOwner & { threadId: str
 }
 
 /** Read an owned message from the server and normalize its untrusted MIME. */
-export async function readSelfHostedMessage(input: { prisma: PrismaClient; userId: string; accountId: string; messageId: string }): Promise<ParsedMessage> {
+export async function readSelfHostedMessage(input: MailboxOwner & { messageId: string }): Promise<ParsedMessage> {
   const row = await input.prisma.emailMessage.findFirst({
     where: { emailAccountId: input.accountId, messageId: input.messageId, emailAccount: { userId: input.userId, provider: 'selfhosted' } },
     select: { threadId: true, internalDate: true, labels: true },

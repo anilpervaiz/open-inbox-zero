@@ -31,7 +31,7 @@ export async function GET(request: Request): Promise<Response> {
   if (checks.database === 'ok') {
     try {
       // Bound the number of provider requests; partial is never reported as fully healthy.
-      const accounts = await prisma.emailAccount.findMany({ where: { provider: { in: ['google', 'microsoft'] } }, select: { id: true }, orderBy: { id: 'asc' }, take: 11 });
+      const accounts = await prisma.emailAccount.findMany({ where: { provider: { in: ['google', 'microsoft', 'selfhosted'] } }, select: { id: true }, orderBy: { id: 'asc' }, take: 11 });
       if (accounts.length) {
         const probes = accounts.slice(0, 10).map(async account => {
           const provider = await resolveMailProvider(prisma, account.id);

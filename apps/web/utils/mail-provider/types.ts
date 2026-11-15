@@ -29,7 +29,7 @@ export interface ParsedMessage {
 }
 
 export interface EmailProvider {
-  readonly providerName: "google" | "microsoft" | "emulator";
+  readonly providerName: "google" | "microsoft" | "emulator" | "selfhosted";
   /** The database account whose credentials and mailbox back this instance. */
   readonly emailAccountId: string;
   listThreads(options: { query?: string; labelIds?: string[]; maxResults?: number }): Promise<{ threadIds: string[] }>;
