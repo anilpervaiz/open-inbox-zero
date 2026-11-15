@@ -8,6 +8,7 @@ export const providerSyncJobSchema = z.discriminatedUnion('provider', [
   z.object({ provider: z.literal('refresh'), emailAccountId: id, threadId: id }).strict(),
   z.object({ provider: z.literal('google'), emailAccountId: id, historyId: z.string().regex(/^\d+$/).max(32) }).strict(),
   z.object({ provider: z.literal('microsoft'), emailAccountId: id, messageId: id, changeType: z.enum(['created', 'updated', 'deleted']) }).strict(),
+  z.object({ provider: z.literal('selfhosted'), emailAccountId: id, folderPath: z.string().min(1).max(256).optional() }).strict(),
 ]);
 export type ProviderSyncJob = z.infer<typeof providerSyncJobSchema>;
 export const providerSyncQueueName = 'open-inbox-zero-provider-sync';

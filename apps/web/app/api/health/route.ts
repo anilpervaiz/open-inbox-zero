@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import Redis from 'ioredis';
 import { prisma } from '../../../utils/server/prisma';
 import { resolveMailProvider } from '../../../utils/mail-provider/provider-resolver';
+import { listSelfHostedFolders } from '../../../utils/mail-provider/self-hosted-imap';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'no-store' };
@@ -31,11 +32,15 @@ export async function GET(request: Request): Promise<Response> {
   if (checks.database === 'ok') {
     try {
       // Bound the number of provider requests; partial is never reported as fully healthy.
-      const accounts = await prisma.emailAccount.findMany({ where: { provider: { in: ['google', 'microsoft', 'selfhosted'] } }, select: { id: true }, orderBy: { id: 'asc' }, take: 11 });
+      const accounts = await prisma.emailAccount.findMany({ where: { provider: { in: ['google', 'microsoft', 'selfhosted'] } }, select: { id: true, provider: true, userId: true }, orderBy: { id: 'asc' }, take: 11 });
       if (accounts.length) {
         const probes = accounts.slice(0, 10).map(async account => {
-          const provider = await resolveMailProvider(prisma, account.id);
-          await provider.listThreads({ maxResults: 1 });
+          if (account.provider === 'selfhosted') {
+            await listSelfHostedFolders({ prisma, sessionUserId: account.userId, accountId: account.id });
+          } else {
+            const provider = await resolveMailProvider(prisma, account.id);
+            await provider.listThreads({ maxResults: 1 });
+          }
         });
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Provider check timed out')), 5000); timer.unref(); });

@@ -7,6 +7,7 @@ import { senderAddress } from '../rule/static-from-risk';
 import { runRules } from '../ai/choose-rule/run-rules';
 import { providerSyncJobSchema, type ProviderSyncJob } from './provider-sync-queue';
 import { ensureMicrosoftSubscription } from './provider-subscriptions';
+import { syncSelfHostedAccount } from './self-hosted-sync';
 
 const gmailHistory = z.object({
   historyId: z.string().regex(/^\d+$/), nextPageToken: z.string().optional(),
@@ -42,11 +43,21 @@ export async function syncProviderJob(input: { prisma: PrismaClient; job: Provid
   const job = providerSyncJobSchema.parse(input.job);
   const { prisma } = input;
   const account = await prisma.emailAccount.findUnique({ where: { id: job.emailAccountId } });
-  if (!account || !['google', 'microsoft'].includes(account.provider) || (!['bootstrap', 'refresh'].includes(job.provider) && account.provider !== job.provider)) throw new Error('Provider account unavailable');
+  if (!account || !['google', 'microsoft', 'selfhosted'].includes(account.provider) || (!['bootstrap', 'refresh'].includes(job.provider) && account.provider !== job.provider)) throw new Error('Provider account unavailable');
   let lock;
   try { lock = await prisma.threadExecutionLock.create({ data: { emailAccountId: account.id, threadId: 'provider-sync:account' } }); }
   catch { throw new Error('Provider synchronization is already running or requires recovery'); }
   try {
+    if (account.provider === 'selfhosted') {
+      if (job.provider === 'bootstrap') {
+        await syncSelfHostedAccount({ prisma, emailAccountId: account.id, mode: 'bootstrap' });
+        return;
+      }
+      if (job.provider === 'selfhosted') {
+        await syncSelfHostedAccount({ prisma, emailAccountId: account.id, mode: 'incremental', folderPath: job.folderPath });
+        return;
+      }
+    }
     const provider = await (input.resolveProvider ?? resolveMailProvider)(prisma, account.id);
     if (provider.emailAccountId !== account.id || provider.providerName !== account.provider) throw new Error('Provider account mismatch');
     if (job.provider === 'refresh') {
@@ -88,6 +99,7 @@ export async function syncProviderJob(input: { prisma: PrismaClient; job: Provid
       } else await saveAndProcess(prisma, provider, account.id, await provider.getMessage(job.messageId));
       return;
     }
+    if (job.provider !== 'google') throw new Error('Provider job mismatch');
     if (!account.lastSyncedHistoryId || !/^\d+$/.test(account.lastSyncedHistoryId)) throw new Error('Gmail synchronization needs an initialized history cursor');
     const access = await getProviderAccessToken({ prisma, emailAccountId: account.id, requestFetch: input.requestFetch });
     const changed = new Set<string>(); const deleted = new Set<string>();

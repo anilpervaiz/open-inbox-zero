@@ -1,10 +1,18 @@
 import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { getProviderAccessToken } from '../auth/provider-tokens';
-import { enqueueProviderSync, getProviderSyncQueue } from './provider-sync-queue';
+import { enqueueProviderSync, getProviderSyncQueue, type ProviderSyncJob } from './provider-sync-queue';
 
 /** Renew before expiry. A new Gmail watch never advances the saved history cursor. */
-export async function maintainProviderSubscriptions(input: { prisma: PrismaClient; topic?: string; requestFetch?: typeof fetch; now?: () => number; enqueueCatchup?: (accountId: string, historyId: string) => Promise<unknown>; getToken?: (accountId: string) => Promise<string>; signal?: AbortSignal }) {
+export async function maintainProviderSubscriptions(input: {
+  prisma: PrismaClient;
+  topic?: string;
+  requestFetch?: typeof fetch;
+  now?: () => number;
+  enqueueCatchup?: ((jobOrAccountId: ProviderSyncJob | string, historyId?: string) => Promise<unknown>);
+  getToken?: (accountId: string) => Promise<string>;
+  signal?: AbortSignal;
+}) {
   const now = (input.now ?? Date.now)();
   const request = input.requestFetch ?? fetch;
   const token = input.getToken ?? ((emailAccountId: string) => getProviderAccessToken({ prisma: input.prisma, emailAccountId }));
@@ -40,6 +48,26 @@ export async function maintainProviderSubscriptions(input: { prisma: PrismaClien
       const actual = new Date(result.expirationDateTime);
       if (result.id !== subscription.subscriptionId || actual.getTime() <= now) throw new Error('Subscription response invalid');
       await input.prisma.providerSubscription.updateMany({ where: { id: subscription.id, status: 'ACTIVE', expiresAt: subscription.expiresAt }, data: { expiresAt: actual } });
+    } catch { failed++; }
+  }
+  const selfHostedAccounts = await input.prisma.emailAccount.findMany({
+    where: { provider: 'selfhosted' },
+    select: { id: true, initialSyncStatus: true },
+    take: 100,
+    orderBy: { id: 'asc' },
+  });
+  for (const account of selfHostedAccounts) {
+    if (input.signal?.aborted) return;
+    try {
+      const job: ProviderSyncJob = {
+        provider: account.initialSyncStatus === 'COMPLETED' ? 'selfhosted' : 'bootstrap',
+        emailAccountId: account.id,
+      };
+      if (input.enqueueCatchup) {
+        await input.enqueueCatchup(job);
+      } else {
+        await enqueueProviderSync(getProviderSyncQueue(), job);
+      }
     } catch { failed++; }
   }
   if (failed) throw new Error(`${failed} provider subscription renewal(s) failed`);
