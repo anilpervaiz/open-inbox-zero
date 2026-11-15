@@ -1,6 +1,6 @@
 # Current handoff for Antigravity and contributors
 
-Updated: **2026-11-15**. Previous application baseline: branch `main`, commit `b804da6` plus the raw MIME parser work described below. This is a point-in-time baseline; check `git status`, branch and HEAD before changing anything. No Git remote was configured at the prior check.
+Updated: **2026-11-15**. Previous application baseline: branch `main`, commit `29c0dc1` plus the internal self-hosted read helpers described below. This is a point-in-time baseline; check `git status`, branch and HEAD before changing anything. No Git remote was configured at the prior check.
 
 ## User goal and boundaries
 
@@ -18,11 +18,12 @@ The user is arranging Oracle Cloud hosting and has said a domain and test accoun
 - `SelfHostedCredential` in the Prisma schema and `apps/web/utils/mail-provider/self-hosted-credentials.ts` provide encrypted owner-scoped mailbox credentials. The helper binds encrypted content to account, owner and mailbox; it is not an invitation or sign-in flow. The added table needs a reviewed production migration. Existing Compose uses `prisma db push`, which is not a production migration process.
 - `apps/web/utils/mail-provider/self-hosted-imap.ts` has a reusable verified-TLS connection helper and read-only folder listing using owner-scoped credentials, operator-configured `SELF_HOSTED_IMAP_HOST`, port 993 and optional operator-provided `SELF_HOSTED_TLS_CA_FILE`. Tests simulate the provider. `SelfHostedFolderState` and IMAP location columns reserve database identities with 64-bit UIDs; they do not implement reconciliation. **The helper is not wired into `EmailProvider`, the resolver, worker, API or workspace.** There is no full self-hosted provider, message import/sync, SMTP sending, provisioning, password sign-in or invitations yet. Both schema additions need a reviewed production migration.
 - `packages/mail-core/src/raw-email.ts` parses bounded raw MIME and attachment metadata; the returned HTML is untrusted and must be sanitized before display. This parser is not yet connected to the IMAP provider.
+- Internal `self-hosted-imap.ts`, `self-hosted-message.ts` and `self-hosted-threading.ts` now fetch UIDVALIDITY-checked raw MIME, normalize and sanitize message content, list cached threads and resolve unambiguous account-scoped references. They have simulated tests but are not wired into a complete provider or sync worker; threading resolution is not a durable reconciliation protocol and must not treat Message-ID alone as proof of message identity.
 - Gmail/Outlook auth, token refresh, webhook and queue code have mock/local-database coverage, not live verification. Recovery from expired Gmail history, expired Outlook subscriptions and interrupted sync locks remains incomplete. Keep these as later work unless the user changes priority.
 
 ## Evidence and limits
 
-On 2026-11-15, after the raw MIME parser: `pnpm test --force` passed with **169 web tests** plus other package tests including the new parser tests and real Redis integration using a temporary Redis 7.4.12 executable. `pnpm lint`, `pnpm typecheck`, `pnpm build`, and `pnpm eval` passed. These results do not test a real IMAP connection or mail-server delivery. The dependency was added from the local package cache; clean-clone installation with the new lockfile has not been verified.
+On 2026-11-15, after the self-hosted read helpers: `pnpm test --force` passed with **177 web tests** plus other package tests including the parser tests and real Redis integration using a temporary Redis 7.4.12 executable. `pnpm lint`, `pnpm typecheck`, `pnpm build`, and `pnpm eval` passed. These results do not test a real IMAP connection or mail-server delivery. The parser dependency was added from the local package cache; clean-clone installation with the new lockfile has not been verified.
 
 The `apps/web/data/eval-report.json` run on 2026-11-15 used 60 synthetic messages and the deterministic emulator; all recorded gates passed. It does not establish live model/mail performance or successful legitimate unsubscriptions. Previous clean-clone and Docker application smoke tests used earlier commits, and hosted CI was not run. Full audit evidence is in [docs/AUDIT_STATUS.md](docs/AUDIT_STATUS.md).
 

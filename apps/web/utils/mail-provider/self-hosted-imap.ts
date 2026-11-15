@@ -36,8 +36,8 @@ export async function withSelfHostedImapClient<T>(input: ConnectionInput, operat
     host, port: 993, secure: true, tls: { rejectUnauthorized: true, ...(ca ? { ca } : {}) },
     auth: { user: credential.username, pass: credential.password }, logger: false,
     disableAutoIdle: true, connectionTimeout: 15_000, greetingTimeout: 15_000,
-    socketTimeout: 30_000, maxLineLength: 1_048_576, maxLiteralSize: 1_048_576,
-    maxResponseSize: 2_097_152,
+    socketTimeout: 30_000, maxLineLength: 1_048_576, maxLiteralSize: 20_000_000,
+    maxResponseSize: 21_048_576,
   };
   let client: MailboxConnection | undefined;
   try {
@@ -48,6 +48,25 @@ export async function withSelfHostedImapClient<T>(input: ConnectionInput, operat
     return await operation(client);
   } catch { throw new Error('Self-hosted mailbox connection failed'); }
   finally { try { client?.close(); } catch { /* Closing must not disclose provider details. */ } }
+}
+
+/** Fetch exact MIME only when the saved location still identifies this mailbox. */
+export async function fetchSelfHostedRawMessage(input: ConnectionInput & { messageId: string }): Promise<Uint8Array> {
+  const row = await input.prisma.emailMessage.findFirst({
+    where: { emailAccountId: input.accountId, messageId: input.messageId, emailAccount: { userId: input.userId, provider: 'selfhosted' } },
+    select: { imapFolder: true, imapUid: true, imapUidValidity: true },
+  });
+  const maxUid = 4_294_967_295n;
+  if (!row?.imapFolder || row.imapUid === null || row.imapUidValidity === null || row.imapUid < 1n || row.imapUid > maxUid || row.imapUidValidity < 1n || row.imapUidValidity > maxUid) throw new Error('Mailbox message location unavailable');
+  return withSelfHostedImapClient(input, async client => {
+    const lock = await client.getMailboxLock(row.imapFolder!);
+    try {
+      if (!client.mailbox || client.mailbox.uidValidity !== row.imapUidValidity) throw new Error('Mailbox location changed');
+      const found = await client.fetchOne(Number(row.imapUid), { uid: true, source: true }, { uid: true });
+      if (!found || found.uid !== Number(row.imapUid) || !found.source || !found.source.length || found.source.length > 20_000_000) throw new Error('Mailbox message unavailable');
+      return new Uint8Array(found.source);
+    } finally { lock.release(); }
+  });
 }
 
 /** Authenticate and list folders; this does not alter mail or send messages. */
