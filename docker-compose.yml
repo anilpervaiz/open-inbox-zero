@@ -29,7 +29,7 @@ services:
     build: .
     environment:
       DATABASE_URL: postgresql://inbox:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/inbox?schema=public
-    command: ["pnpm", "--filter", "@open-inbox-zero/web", "exec", "prisma", "db", "push", "--skip-generate"]
+    command: ["pnpm", "--filter", "@open-inbox-zero/web", "exec", "prisma", "migrate", "deploy"]
     depends_on:
       postgres:
         condition: service_healthy
