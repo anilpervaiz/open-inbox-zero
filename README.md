@@ -2,9 +2,9 @@
 
 Open Inbox Zero is an MIT-licensed email assistant and split-inbox application. It can organize mail with rules, track replies, create drafts, help manage newsletters, and expose mailbox tools through MCP. A synthetic local demo runs without Google or Microsoft credentials and without a paid AI key.
 
-**Project status:** the local emulator and automated tests run, but this project has not completed its full architecture/security audit. Real Google and Microsoft sign-in, notifications, and end-to-end mailbox behavior have not been verified against live accounts. The current priority is the separately hosted mail service, which is not yet connected to the workspace. See [STATUS.md](STATUS.md) and [CURRENT_HANDOFF.md](CURRENT_HANDOFF.md) before using real mail.
+**Project status:** the local emulator, self-hosted IMAP/SMTP provider, incremental sync worker, closed-signup invitation auth, manual SMTP outbox, and DR/preflight scripts are integrated into the workspace and verified locally against embedded PostgreSQL and loopback TLS/STARTTLS/IMAP harnesses. Real Google and Microsoft sign-in, webhooks, live Dovecot/Postfix servers, and public DNS records have not yet been verified against live external infrastructure, and a full external security audit has not been completed. See [STATUS.md](STATUS.md) and [CURRENT_HANDOFF.md](CURRENT_HANDOFF.md) before connecting real mail.
 
-An experimental [self-hosted mail server package](deploy/mailserver/README.md) is available separately. It is not yet connected to this workspace or verified for real mail.
+Docker scaffolding for a [self-hosted mail server](deploy/mailserver/README.md) is included alongside [backup/restore verification](apps/web/scripts/verify-backup-restore.ts) and [mailserver preflight checks](apps/web/scripts/verify-mailserver-preflight.ts), and still requires operator host, TLS certificate, and DNS setup before live cutover.
 
 ## Local demo
 
@@ -23,7 +23,7 @@ Open <http://127.0.0.1:3000>. The launcher starts an embedded PostgreSQL databas
 flowchart LR
   UI[Web inbox] --> API[Workspace and MCP APIs]
   API --> DB[(PostgreSQL)]
-  API --> Providers[Emulator / Gmail / Microsoft Graph]
+  API --> Providers[Emulator / Self-Hosted IMAP-SMTP / Gmail / Microsoft Graph]
   Hooks[Verified provider notifications] --> Queue[(Redis / BullMQ)]
   Queue --> Worker[Sync worker]
   Worker --> Rules[Four-stage rule engine]
@@ -50,7 +50,7 @@ A local Docker smoke test built the image and started the services; authenticate
 
 Pilot mode blocks rule-driven automatic sending and forwarding, including previously queued actions, while allowing drafts and reversible actions. It is enabled by default; Compose enforces it for both the web service and worker. A non-Compose operator can explicitly set `PILOT_MODE=false` to leave pilot mode; doing so permits explicitly configured automatic outbound actions and is not recommended before the outstanding audit and live-provider tests are complete.
 
-Compose uses `prisma db push` during startup, which is suitable for an initial setup but is not a substitute for a reviewed production migration and backup process. Never use `docker compose down -v` unless you intend to delete the database and queue volumes.
+Compose runs `prisma migrate deploy` during startup against the baseline migration (`20261115000000_production_baseline`), paired with the [backup/restore verification script](apps/web/scripts/verify-backup-restore.ts) for disaster-recovery drills. Never use `docker compose down -v` unless you intend to delete the database and queue volumes.
 
 For a zero-credential demonstration, use `pnpm local:start` instead of the Docker configuration. `LLM_PROVIDER=emulator` is the default in the example; optional Google, OpenAI, Anthropic, and Ollama settings are listed there. The public `/api/health` endpoint is inexpensive; send `Authorization: Bearer <HEALTH_TOKEN>` for detailed checks. Detailed provider checks cover at most ten accounts and report partial coverage beyond that.
 
