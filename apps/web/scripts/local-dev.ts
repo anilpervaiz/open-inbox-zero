@@ -35,14 +35,24 @@ function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<v
   });
 }
 
-/** Add the nullable OAuth key and its index without accepting destructive schema changes. */
+/** Add nullable OAuth and IMAP index columns without accepting destructive schema changes. */
 export async function prepareSafeOAuthIndex(prisma: PrismaClient): Promise<void> {
   const rows = await prisma.$queryRaw<{ present: boolean }[]>`SELECT to_regclass('"EmailAccount"') IS NOT NULL AS present`;
-  if (!rows[0]?.present) return;
-  await prisma.$transaction([
-    prisma.$executeRaw`ALTER TABLE "EmailAccount" ADD COLUMN IF NOT EXISTS "authAccountId" TEXT`,
-    prisma.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "EmailAccount_authAccountId_key" ON "EmailAccount" ("authAccountId")`,
-  ]);
+  if (rows[0]?.present) {
+    await prisma.$transaction([
+      prisma.$executeRaw`ALTER TABLE "EmailAccount" ADD COLUMN IF NOT EXISTS "authAccountId" TEXT`,
+      prisma.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "EmailAccount_authAccountId_key" ON "EmailAccount" ("authAccountId")`,
+    ]);
+  }
+  const messageRows = await prisma.$queryRaw<{ present: boolean }[]>`SELECT to_regclass('"EmailMessage"') IS NOT NULL AS present`;
+  if (messageRows[0]?.present) {
+    await prisma.$transaction([
+      prisma.$executeRaw`ALTER TABLE "EmailMessage" ADD COLUMN IF NOT EXISTS "imapFolder" TEXT`,
+      prisma.$executeRaw`ALTER TABLE "EmailMessage" ADD COLUMN IF NOT EXISTS "imapUid" BIGINT`,
+      prisma.$executeRaw`ALTER TABLE "EmailMessage" ADD COLUMN IF NOT EXISTS "imapUidValidity" BIGINT`,
+      prisma.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "EmailMessage_emailAccountId_imapFolder_imapUidValidity_imap_key" ON "EmailMessage" ("emailAccountId", "imapFolder", "imapUidValidity", "imapUid")`,
+    ]);
+  }
 }
 
 /** Seed a new demo mailbox once. Existing accounts and their data are never reset. */
