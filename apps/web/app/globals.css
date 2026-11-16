@@ -7,6 +7,7 @@
   --paper: #fff;
   --canvas: #fbfaf8;
   --accent: #746254;
+  --target-size: 24px;
   color-scheme: light;
   accent-color: var(--accent);
   scrollbar-color: #cfc9bf transparent;
@@ -32,6 +33,17 @@ body {
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--canvas);
   font-size: 0.8125rem;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p,
+li {
+  text-wrap: pretty;
 }
 
 button,
@@ -198,7 +210,8 @@ kbd {
 }
 
 .nav-item {
-  height: 36px;
+  height: auto;
+  min-height: max(36px, var(--target-size));
   border-radius: 7px;
   display: flex;
   align-items: center;
@@ -304,6 +317,8 @@ kbd {
 .icon-btn {
   height: 32px;
   width: 32px;
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
   border-radius: 7px;
   display: inline-grid;
   place-items: center;
@@ -397,6 +412,14 @@ kbd {
   gap: 5px;
 }
 
+.list-toolbar button {
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
+  display: inline-grid;
+  place-items: center;
+  border-radius: 7px;
+}
+
 .inline-search {
   margin: 0 20px 12px;
   border: 1px solid #f0eee9;
@@ -420,6 +443,8 @@ kbd {
 .thread-scroll {
   flex: 1;
   overflow: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 .thread-row {
@@ -556,6 +581,8 @@ kbd {
   min-width: 0;
   overflow: auto;
   background: #fff;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 .detail-toolbar {
@@ -573,7 +600,7 @@ kbd {
 
 .detail-toolbar > div {
   display: flex;
-  gap: 4px;
+  gap: 8px;
 }
 
 .muted-text {
@@ -627,6 +654,7 @@ kbd {
 
 .trace {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   border: 1px solid #ece7df;
@@ -673,8 +701,11 @@ kbd {
 }
 
 .trace button {
-  display: flex;
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   font-size: 0.625rem;
   color: #857567;
@@ -773,6 +804,7 @@ kbd {
 
 .composer-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 0 15px 15px;
@@ -803,6 +835,8 @@ kbd {
   font-size: 0.6875rem;
   font-weight: 650;
   padding: 9px 12px;
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
 }
 
 .primary-button {
@@ -873,6 +907,8 @@ kbd {
   overflow: auto;
   padding: 42px clamp(24px, 5vw, 75px) 80px;
   background: #fcfbf9;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 .view-heading {
@@ -889,8 +925,10 @@ kbd {
 
 .panel-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 18px 20px;
   border-bottom: 1px solid #f0eee9;
 }
@@ -946,17 +984,36 @@ kbd {
   color: #8b7463;
   padding: 7px;
   border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
 }
 
 .table-scroll {
   overflow: auto;
+  max-inline-size: 100%;
+  container-type: inline-size;
 }
 
 table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   text-align: left;
   font-size: 0.6875rem;
+  --label-2: "Emails";
+  --label-3: "Read rate";
+  --label-4: "Status";
+}
+
+thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  background: #fff;
 }
 
 th {
@@ -971,6 +1028,31 @@ td,
 th {
   padding: 15px 20px;
   border-bottom: 1px solid #f3f1ed;
+}
+
+tbody th {
+  position: sticky;
+  inset-inline-start: 0;
+  background: #fff;
+  padding: 15px 20px;
+  border-bottom: 1px solid #f3f1ed;
+  font-weight: 600;
+  color: var(--ink);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.6875rem;
+}
+
+.mobile-sort {
+  display: none;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.mobile-sort .active-sort {
+  font-weight: 700;
+  background: #f4f2ee;
 }
 
 td {
@@ -1020,6 +1102,58 @@ th:not([aria-sort]) .sort-arrow::after {
   opacity: 0.45;
 }
 
+@container (width < 38rem) {
+  table, thead, tbody, tr, th, td {
+    display: block;
+  }
+  thead {
+    display: none;
+  }
+  tbody tr {
+    margin: 0.75rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+  }
+  tbody th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background: #f8f7f4;
+    border-bottom: 1px solid var(--line);
+    padding: 12px 16px;
+    overflow-wrap: anywhere;
+  }
+  tbody td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid #f3f1ed;
+  }
+  tbody td:last-child {
+    border-bottom: 0;
+    justify-content: flex-start;
+  }
+  tbody td:nth-child(2)::before {
+    content: var(--label-2) ": ";
+    font-weight: 600;
+    color: #8d877e;
+  }
+  tbody td:nth-child(3)::before {
+    content: var(--label-3) ": ";
+    font-weight: 600;
+    color: #8d877e;
+  }
+  tbody td:nth-child(4)::before {
+    content: var(--label-4) ": ";
+    font-weight: 600;
+    color: #8d877e;
+  }
+}
+
 .nav-item b,
 .list-heading h1 span,
 .thread-top time,
@@ -1031,9 +1165,19 @@ td,
 
 .row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   white-space: nowrap;
   color: #8b7463;
+}
+
+.row-actions button {
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
 }
 
 .rate {
@@ -1307,24 +1451,55 @@ dialog.command-dialog[open] {
   color: #35312d;
 }
 
-@media (max-width: 53.125em) {
+@media (pointer: coarse), (max-width: 56.25em) {
+  :root {
+    --target-size: 44px;
+  }
+}
+
+@media (max-width: 56.25em) {
   .sidebar {
-    width: 190px;
+    width: 200px;
   }
   .brand {
     font-size: 0.8125rem;
   }
+  .search-button kbd {
+    display: none;
+  }
   .mail-layout {
-    grid-template-columns: minmax(260px, 310px) minmax(0, 1fr);
+    height: calc(100% - 64px);
+    display: block;
+  }
+  .thread-column {
+    height: 100%;
+    border-right: 0;
+  }
+  .detail-column {
+    display: none;
+    height: 100%;
+  }
+  .mail-layout.show-detail .thread-column {
+    display: none;
+  }
+  .mail-layout.show-detail .detail-column {
+    display: block;
+  }
+  .mobile-back {
+    display: inline-grid;
   }
   .detail-body {
-    padding: 35px 25px;
+    padding: 32px 24px 64px;
   }
   .sidebar-bottom {
     font-size: 0.5625rem;
+    flex-wrap: wrap;
   }
   .sidebar-bottom svg {
     display: none;
+  }
+  .mobile-sort {
+    display: inline-flex;
   }
 }
 
@@ -1354,13 +1529,18 @@ dialog.command-dialog[open] {
   .account-select,
   .search-button,
   .nav-label,
-  .sidebar-bottom,
-  .sidebar nav[aria-label="Workspace views"] {
+  .sidebar-bottom {
     display: none;
   }
-  .sidebar nav[aria-label="Inbox views"] {
+  .sidebar nav[aria-label="Inbox views"],
+  .sidebar nav[aria-label="Workspace views"] {
     display: flex;
-    gap: 3px;
+    gap: 4px;
+    flex: none;
+  }
+  .sidebar nav[aria-label="Workspace views"] {
+    border-inline-start: 1px solid var(--line);
+    padding-inline-start: 8px;
   }
   .nav-item {
     width: auto;
@@ -1372,7 +1552,7 @@ dialog.command-dialog[open] {
     display: none;
   }
   .main-area {
-    height: calc(100dvh - 53px);
+    height: calc(100dvh - 65px);
   }
   .topbar {
     height: 50px;
@@ -1434,12 +1614,14 @@ dialog.command-dialog[open] {
     width: 14px;
   }
   .top-actions {
-    gap: 5px;
+    gap: 8px;
   }
   .sidebar .account-select {
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
     display: flex;
-    width: 40px;
-    min-width: 40px;
+    justify-content: center;
     padding: 4px;
     margin: 0;
   }
